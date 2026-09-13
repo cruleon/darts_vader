@@ -9,6 +9,19 @@ data/videos/*
 !data/videos/.gitkeep
 data/*.db
 
+# Dataset sintetico generato (riproducibile con
+# scripts/generate_pose_dataset.py) e pesi addestrati.
+data/pose_dataset/*
+!data/pose_dataset/.gitkeep
+data/deepdarts_pose_dataset/*
+!data/deepdarts_pose_dataset/.gitkeep
+models/*.pt
+
+# Dataset DeepDarts (McNally 2021, CC-BY): scaricato manualmente da IEEE
+# Dataport, non ridistribuito in questo repository. Vedi
+# scripts/import_deepdarts_dataset.py per come convertirlo.
+training_data_IEEE/
+
 # Marker generati (riproducibili con scripts/generate_aruco_markers.py)
 docs/markers/*
 !docs/markers/.gitkeep

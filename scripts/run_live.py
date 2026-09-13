@@ -1,26 +1,59 @@
-"""Elabora un video registrato attraverso l'intera pipeline (calibrazione
--> detection -> scoring -> persistenza) e salva la partita nel database.
+"""Esegue l'intera pipeline (calibrazione -> detection -> scoring ->
+persistenza) live da webcam, invece che da un video registrato.
+
+Una webcam non finisce mai da sola: Ctrl+C interrompe lo stream in modo
+pulito (l'eventuale turno parziale in corso viene comunque chiuso e
+salvato, con la stessa logica di fine-sorgente gia' usata per i video).
 
 Uso:
-    uv run python scripts/process_video.py --video data/videos/synthetic_calibration.mp4 \
-        --player1 Alice --player2 Bob
+    uv run python scripts/run_live.py --player1 Alice --player2 Bob
+    uv run python scripts/run_live.py --device-index 1
 """
 
 from __future__ import annotations
 
 import argparse
+import signal
+import threading
+
+import numpy as np
 
 from dartvision.calibration.homography import Calibrator
 from dartvision.config import load_config
 from dartvision.detection.frame_diff_detector import FrameDiffDetector
 from dartvision.detection.interface import ImpactDetector
 from dartvision.detection.ml_tip_detector import MLTipDetector
-from dartvision.input.frame_source import VideoFileSource
+from dartvision.input.frame_source import FrameSource, WebcamSource
 from dartvision.persistence.db import connect
 from dartvision.persistence.repository import DartRepository
 from dartvision.pipeline.runner import run_pipeline
 from dartvision.scoring.game_501 import STARTING_SCORE_DEFAULT
 from dartvision.scoring.match_501 import MatchTurnResult
+
+
+class _InterruptibleSource(FrameSource):
+    """Interrompe ``source`` in modo pulito quando ``stop_event`` scatta.
+
+    ``pipeline.runner.run_pipeline`` non sa nulla di webcam o segnali:
+    vede semplicemente "la sorgente e' finita" e chiude l'eventuale
+    turno parziale con la logica gia' esistente (``flush_turn()``).
+    """
+
+    def __init__(self, source: FrameSource, stop_event: threading.Event) -> None:
+        self._source = source
+        self._stop_event = stop_event
+
+    @property
+    def fps(self) -> float:
+        return self._source.fps
+
+    def read(self) -> tuple[bool, np.ndarray | None]:
+        if self._stop_event.is_set():
+            return False, None
+        return self._source.read()
+
+    def release(self) -> None:
+        self._source.release()
 
 
 def _build_detector(name: str, config) -> ImpactDetector:
@@ -49,7 +82,7 @@ def _report_turn(player_name: str, result: MatchTurnResult) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="config/board_config.yaml")
-    parser.add_argument("--video", required=True)
+    parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--detector", choices=["frame-diff", "ml"], default="frame-diff")
     parser.add_argument("--db", default="data/dartvision.db")
     parser.add_argument("--starting-score", type=int, default=STARTING_SCORE_DEFAULT)
@@ -63,16 +96,27 @@ def main() -> None:
 
     conn = connect(args.db)
     repository = DartRepository(conn)
-
     player_names = {1: args.player1, 2: args.player2}
 
-    with VideoFileSource(args.video) as source:
-        result = run_pipeline(
-            source, config, calibrator, detector, repository,
-            player1_name=args.player1, player2_name=args.player2,
-            starting_score=args.starting_score,
-            on_turn=lambda r: _report_turn(player_names[r.player_number], r),
-        )
+    stop_event = threading.Event()
+
+    def _handle_sigint(signum, frame) -> None:
+        print("\nInterrotto: chiudo l'eventuale turno in corso e salvo...")
+        stop_event.set()
+
+    previous_handler = signal.signal(signal.SIGINT, _handle_sigint)
+
+    try:
+        with WebcamSource(device_index=args.device_index) as webcam:
+            source = _InterruptibleSource(webcam, stop_event)
+            result = run_pipeline(
+                source, config, calibrator, detector, repository,
+                player1_name=args.player1, player2_name=args.player2,
+                starting_score=args.starting_score,
+                on_turn=lambda r: _report_turn(player_names[r.player_number], r),
+            )
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
 
     print(f"\nPartita #{result.game_id} salvata in {args.db}: {len(result.turns)} turni giocati.")
     conn.close()

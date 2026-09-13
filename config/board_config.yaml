@@ -100,3 +100,31 @@ detection:
   # regione e' quasi certamente una mano che entra nel campo o un'ombra
   # estesa, non una singola freccetta.
   max_impact_area_px: 6000
+
+# Detector alternativo basato su un modello ML (YOLO-pose), che riusa la
+# stessa maschera "regione cambiata" di 'detection' come proposta di ROI
+# ma affida a un modello la localizzazione precisa della punta. Vedi
+# dartvision.detection.ml_tip_detector.MLTipDetector. Coesiste con
+# 'detection': quale detector usare si sceglie a runtime (es. flag
+# --detector negli script), non qui.
+ml_detection:
+  # Percorso dei pesi addestrati (vedi scripts/train_pose_model.py). Se
+  # il file non esiste, MLTipDetector fallisce in modo esplicito alla
+  # costruzione: non serve che esista per validare questa config.
+  model_path: models/dart_tip_pose.pt
+
+  # Confidenza minima (0-1) di una detection per essere accettata.
+  confidence_threshold: 0.4
+
+  # "auto" sceglie CUDA se disponibile, altrimenti CPU.
+  device: auto
+
+  # Padding (px sul piano raddrizzato) aggiunto attorno alla bbox di ogni
+  # regione candidata prima di ritagliare la ROI da passare al modello.
+  roi_padding_px: 24
+
+  # Soglie di area (px^2 sul piano raddrizzato) per le regioni candidate:
+  # qui il filtro fine e' la confidenza del modello, non l'area, quindi
+  # sono volutamente piu' permissive di detection.min/max_impact_area_px.
+  candidate_min_area_px: 10
+  candidate_max_area_px: 8000

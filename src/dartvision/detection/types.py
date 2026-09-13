@@ -14,7 +14,9 @@ class Impact:
     stesse coordinate in pixel del piano raddrizzato (utili per disegno
     e heatmap). ``area_px`` e' l'area (px^2 sul piano raddrizzato) della
     regione rilevata: non e' una probabilita', ma e' utile per debug e
-    per capire quanto la detection era "solida".
+    per capire quanto la detection era "solida". ``confidence`` e'
+    popolato solo dai detector ML (confidenza del modello, 0-1);
+    resta ``None`` per ``FrameDiffDetector``, che non ne ha uno.
     """
 
     x_mm: float
@@ -22,3 +24,4 @@ class Impact:
     x_px: float
     y_px: float
     area_px: float
+    confidence: float | None = None

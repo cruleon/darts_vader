@@ -25,14 +25,17 @@ scelta progettuale è motivata più sotto, non solo implementata.
 
 ## Cosa fa
 
-1. Legge un video (file mp4 oggi, webcam come estensione futura — vedi
-   [Roadmap](#roadmap)).
+1. Legge un video (file mp4) o una **webcam live**.
 2. Rileva 4+ marker ArUco posizionati attorno al bersaglio e calcola
    l'homography che raddrizza la vista in un cerchio perfetto — **ricalcolata
    ad ogni frame**, quindi robusta a una webcam che cambia posizione tra una
    sessione e l'altra.
 3. Rileva quando una nuova freccetta compare (differenza tra frame) e ne
-   isola la punta, convertendola in coordinate sul piano raddrizzato.
+   isola la punta, convertendola in coordinate sul piano raddrizzato — con
+   due detector intercambiabili: un'euristica geometrica classica
+   (`FrameDiffDetector`) o un modello ML di keypoint detection
+   (`MLTipDetector`), più robusto su freccette ravvicinate/sovrapposte
+   (vedi [Perché queste scelte progettuali](#perché-queste-scelte-progettuali)).
 4. Converte la coordinata in settore/anello/punteggio e applica le regole
    della modalità 501 (bust, chiusura su doppio o bullseye interno,
    distanza dal target di chiusura).
@@ -52,14 +55,18 @@ ordine in cui va letto:
 ```mermaid
 flowchart LR
     subgraph L1["1 · input + calibrazione"]
-        A["FrameSource<br/>video/webcam"]
+        A["FrameSource<br/>VideoFileSource / WebcamSource"]
         B["ArucoDetector"]
         C["Calibrator<br/>homography"]
         A --> B --> C
     end
 
-    subgraph L2["2 · detection"]
+    subgraph L2["2 · detection (ImpactDetector)"]
+        M["motion_regions<br/>(regione cambiata, condiviso)"]
         D["FrameDiffDetector<br/>+ tip_extraction"]
+        N["MLTipDetector<br/>+ YOLO-pose"]
+        M --> D
+        M --> N
     end
 
     subgraph L3["3 · scoring"]
@@ -76,12 +83,18 @@ flowchart LR
         H["Streamlit + Plotly"]
     end
 
-    A -->|frame grezzi| D
+    A -->|frame grezzi| M
     C -->|homography| D
+    C -->|homography| N
     D -->|"Impact (x,y mm)"| E
+    N -->|"Impact (x,y mm)"| E
     F -->|ThrowRecord| G
     G --> H
 ```
+
+`FrameDiffDetector` e `MLTipDetector` sono **intercambiabili** dietro
+`ImpactDetector` (flag `--detector {frame-diff,ml}` negli script): nessun
+livello a valle sa quale dei due sia in uso.
 
 `pipeline.runner` è l'**unico** modulo che conosce tutti i livelli: li
 orchestra, ma nessuno di essi conosce gli altri. In pratica:
@@ -135,6 +148,34 @@ proiettati sul piano raddrizzato — dove le soglie di area (config) restano
 espresse in unità fisiche stabili, indipendenti da quanto la webcam sia
 vicina o lontana dal bersaglio.
 
+**Detection ML ibrida, non "un modello su ogni frame".** `MLTipDetector`
+riusa la stessa maschera "regione cambiata" di `FrameDiffDetector`
+(estratta in `detection/motion_regions.py`) come proposta economica di
+ROI sui frame grezzi, e affida a un modello YOLO-pose (1 keypoint = la
+punta) solo il compito di localizzare la punta con precisione dentro
+ciascun ritaglio candidato, raddrizzato sul piano. Le alternative scartate:
+bbox-only richiederebbe comunque un'euristica geometrica a valle per
+isolare la punta dentro il box (stesso problema di fondo su freccette
+ravvicinate/a mezzaluna); la segmentazione istanza è più pesante per un
+guadagno che non serve, perché a valle serve comunque un punto, non
+un'area. Il vantaggio del keypoint diretto: ogni freccetta rilevata ha la
+propria punta nello stesso forward pass, quindi le freccette sovrapposte
+non vengono più fuse in un unico blob come nel frame-diff puro. E
+facendo girare il modello solo sui rari eventi "qualcosa è cambiato", su
+piccoli ritagli (non sul frame intero, non su ogni frame), resta
+sostenibile anche su CPU.
+
+**Dataset di training 100% sintetico.** Nessun dato reale annotato esiste
+ancora (nessun setup fisico su cui raccoglierlo — stesso vincolo che ha
+già rimandato la webcam). Il dataset per YOLO-pose viene quindi generato
+interamente in `dartvision.synthetic` (`scripts/generate_pose_dataset.py`),
+disegnando freccette stilizzate (fusto+punta+alette, non un semplice
+cerchio) sul piano raddrizzato, con domain randomization (luce, rumore,
+blur, compressione, scala) per ridurre il gap tra sintetico e reale. Il
+training vero e proprio (`scripts/train_pose_model.py`) è pensato per
+girare su una macchina con GPU, non su questa: è uno script standalone,
+non parte della pipeline principale.
+
 **La punta è il punto più vicino al centro.** Quando una freccetta si
 conficca, la regione rilevata dal frame-diff include punta, fusto e alette.
 L'euristica adottata — indicata dalle specifiche del progetto — è scegliere
@@ -165,27 +206,33 @@ vedi [Limiti noti](#limiti-noti)) invece che a integrazione ultimata.
 ```
 config/
   board_config.yaml          # UNICA fonte di geometria fisica: raggi anelli,
-                              # posizione marker, soglie di detection
+                              # posizione marker, soglie di detection (classica e ML)
 docs/
   images/                     # screenshot per questo README
 scripts/
   generate_aruco_markers.py   # genera i PNG dei marker da stampare
   generate_synthetic_video.py # video mp4 sintetico per sviluppo/test (dev tool)
-  process_video.py            # pipeline completa: video -> DB
+  generate_pose_dataset.py    # dataset sintetico YOLO-pose per addestrare MLTipDetector
+  import_deepdarts_dataset.py # converte il dataset reale DeepDarts nello stesso formato
+  train_pose_model.py         # training standalone (da eseguire su una macchina con GPU)
+  process_video.py            # pipeline completa: video -> DB (--detector frame-diff|ml)
+  run_live.py                 # pipeline completa: webcam live -> DB (Ctrl+C per fermare)
   seed_demo_data.py           # popola il DB con dati demo (bypassa la CV, per la dashboard)
   run_on_video.py             # solo Livello 1: diagnostica di calibrazione
   run_dashboard.py            # avvia la dashboard Streamlit
 src/dartvision/
   config.py                   # loader tipizzato di board_config.yaml
-  input/                      # Livello 1a: FrameSource (video oggi, webcam poi)
+  input/                      # Livello 1a: FrameSource, VideoFileSource, WebcamSource
   calibration/                # Livello 1b: ArucoDetector, Calibrator/homography
-  detection/                  # Livello 2: ImpactDetector, FrameDiffDetector, tip_extraction
+  detection/                  # Livello 2: ImpactDetector, motion_regions (condiviso),
+                               # FrameDiffDetector, tip_extraction, MLTipDetector
+  synthetic/                  # rendering bersaglio/freccette per test e dataset ML
   scoring/                    # Livello 3: geometria polare, punteggio, regole 501
   persistence/                # Livello 4: modelli, schema SQLite, repository
   pipeline/                   # orchestratore: unisce i livelli 1-4
   analytics.py                 # statistiche di fine partita (logica pura)
   dashboard/                   # Livello 5: app Streamlit, figura Plotly, componenti
-tests/                         # 83 test, pytest
+tests/                         # pytest (uv run pytest -q per il conteggio aggiornato)
 ```
 
 ## Setup
@@ -194,11 +241,17 @@ Richiede Python 3.11+ e [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync            # installa tutte le dipendenze in .venv
-uv run pytest -q   # verifica che tutto funzioni: 83 test dovrebbero passare
+uv run pytest -q   # verifica che tutto funzioni: tutti i test dovrebbero passare
 ```
 
 Nessun'altra configurazione è necessaria per esplorare il progetto con i
-dati dimostrativi già inclusi.
+dati dimostrativi già inclusi. Solo per usare `MLTipDetector` (inferenza)
+o `scripts/train_pose_model.py` (training) serve l'estensione opzionale
+`ml` (porta con sé `ultralytics`/`torch`, non installata di default):
+
+```bash
+uv sync --extra ml
+```
 
 ## Configurazione fisica del bersaglio
 
@@ -233,11 +286,26 @@ Dopo averli stampati e posizionati attorno al bersaglio:
 
 ```bash
 uv run python scripts/process_video.py --video path/al/video.mp4
+uv run python scripts/process_video.py --video path/al/video.mp4 --detector ml
 ```
 
 Esegue l'intera pipeline (calibrazione → detection → scoring →
 persistenza) e salva la partita in `data/dartvision.db`, stampando un
-riepilogo turno per turno.
+riepilogo turno per turno. `--detector` sceglie tra `frame-diff`
+(default, sempre disponibile) e `ml` (richiede un modello addestrato, vedi
+[Detection ML](#perché-queste-scelte-progettuali) e
+`scripts/train_pose_model.py`).
+
+### Webcam live
+
+```bash
+uv run python scripts/run_live.py --player1 Alice --player2 Bob
+```
+
+Stessa pipeline, ma da webcam invece che da file: gira finché non si preme
+Ctrl+C, che chiude in modo pulito l'eventuale turno in corso e salva la
+partita (stessa logica di fine-sorgente usata per i video). Accetta anche
+`--detector {frame-diff,ml}` e `--device-index` per scegliere la webcam.
 
 ### Dashboard
 
@@ -279,33 +347,113 @@ un'unica homography plausibile, più un `.ground_truth.json` con le
 coordinate vere — usato per sviluppare e validare i Livelli 1-2 prima di
 avere un setup fisico.
 
+### Dataset e training per `MLTipDetector`
+
+```bash
+uv run python scripts/generate_pose_dataset.py --num-samples 5000
+```
+
+Genera un dataset sintetico in formato YOLO-pose (`data/pose_dataset/` di
+default): freccette stilizzate (fusto+punta+alette) disegnate sul piano
+raddrizzato, con posizioni/angoli casuali, freccette ravvicinate/
+sovrapposte incluse di proposito, e domain randomization (luce, rumore,
+blur, compressione, scala) per ridurre il gap sintetico/reale.
+
+Il training vero e proprio va eseguito su una macchina con GPU (non
+questa):
+
+```bash
+uv sync --extra ml   # sulla macchina GPU
+uv run python scripts/train_pose_model.py --data data/pose_dataset/dataset.yaml --device 0
+```
+
+Copia poi `best.pt` nel path indicato da `ml_detection.model_path` in
+`config/board_config.yaml` (default `models/dart_tip_pose.pt`) per usare
+`--detector ml`.
+
+#### Dati reali (opzionale): dataset DeepDarts
+
+Oltre al dataset sintetico, `scripts/import_deepdarts_dataset.py` converte
+il dataset pubblico **DeepDarts** (McNally, CVSports 2021 — 16.050 foto
+reali, 32.027 freccette annotate) nello stesso formato YOLO-pose, cosi' i
+due dataset si possono mescolare in training. Funziona sfruttando il
+fatto che DeepDarts annota 4 punti di calibrazione a confini di settore
+standard del bersaglio (5/20, 17/3, 8/11, 13/6, sul bordo esterno
+dell'anello doppio) — posizioni fisiche note, le stesse specifiche BDO
+gia' usate in `config/board_config.yaml` — permettendo di calcolare
+un'omografia diretta verso il nostro piano raddrizzato e riproiettarci
+sopra anche le punte reali (vedi `dartvision.synthetic.deepdarts_import`,
+verificato empiricamente per allineamento).
+
+Il dataset **non è incluso** in questo repository (licenza CC-BY, richiede
+un account IEEE DataPort gratuito):
+
+1. Scarica `labels_pkl.zip` e `cropped_images.zip` da
+   [ieee-dataport.org/open-access/deepdarts-dataset](https://ieee-dataport.org/open-access/deepdarts-dataset)
+   ed estraili (es. in `training_data_IEEE/`).
+2. Converti:
+   ```bash
+   uv run python scripts/import_deepdarts_dataset.py \
+       --labels-pkl training_data_IEEE/labels_pkl/labels.pkl \
+       --images-dir training_data_IEEE/cropped_images/800
+   ```
+3. Passa entrambi i `dataset.yaml` (sintetico + DeepDarts) a
+   `scripts/train_pose_model.py --data` (Ultralytics accetta più percorsi
+   in `train:`/`val:`).
+
+Citazione: William McNally, "DeepDarts Dataset", IEEE Dataport, 2021,
+doi:10.21227/05e7-xs69 ([paper](https://arxiv.org/abs/2105.09880),
+[codice](https://github.com/wmcnally/deep-darts)).
+
 ## Test
 
 ```bash
 uv run pytest -q
 ```
 
-83 test. Priorità data alla logica pura (geometria, punteggio, regole 501,
+128 test. Priorità data alla logica pura (geometria, punteggio, regole 501,
 distanza di chiusura, statistiche): non richiedono OpenCV né un database,
-girano in meno di 2 secondi. Calibrazione, detection, persistenza e
+girano in meno di 5 secondi. Calibrazione, detection, persistenza e
 pipeline hanno invece test con dati sintetici (marker finti, frame
-disegnati a mano, database temporanei) — nessun test richiede un video o
-un DB reali.
+disegnati a mano, database temporanei) — nessun test richiede un video, un
+DB, una webcam o un GPU reali. `MLTipDetector` è testato iniettando un
+modello finto scriptato (`model=...` nel costruttore): nessun test
+richiede `ultralytics` installato o un modello realmente addestrato — la
+validazione con un modello vero, dopo un training reale, resta manuale
+(es. con uno script diagnostico stile `run_on_video.py`).
 
 ## Limiti noti
 
-**Il frame-diff fatica con freccette molto ravvicinate.** Nel costruire i
-dati dimostrativi ho verificato che quando due impatti atterrano a pochi
-millimetri l'uno dall'altro in tempi ravvicinati, la compressione video
-(mp4/H.264) introduce artefatti che deformano la regione "nuova" rilevata
-in una mezzaluna invece che in un cerchio pulito, confondendo l'euristica
-della punta. È il motivo per cui `scripts/seed_demo_data.py` genera i dati
-dimostrativi della dashboard direttamente dai Livelli 3-4 (già validati),
-mentre `process_video.py` resta il percorso reale via computer vision —
-accurato quando gli impatti sono ragionevolmente separati, come verificato
-nei test di integrazione. Un miglioramento naturale: un modello di sfondo
-multi-frame (es. media mobile o MOG2) al posto del diff tra due soli frame
-consecutivi.
+**Il frame-diff fatica con freccette molto ravvicinate (`FrameDiffDetector`).**
+Nel costruire i dati dimostrativi ho verificato che quando due impatti
+atterrano a pochi millimetri l'uno dall'altro in tempi ravvicinati, la
+compressione video (mp4/H.264) introduce artefatti che deformano la
+regione "nuova" rilevata in una mezzaluna invece che in un cerchio pulito,
+confondendo l'euristica della punta. È il motivo per cui
+`scripts/seed_demo_data.py` genera i dati dimostrativi della dashboard
+direttamente dai Livelli 3-4 (già validati), mentre `process_video.py`
+resta il percorso reale via computer vision — accurato quando gli impatti
+sono ragionevolmente separati, come verificato nei test di integrazione.
+`MLTipDetector` è stato introdotto proprio per attenuare questo limite
+(ogni freccetta rilevata ha la propria punta, anche se sovrapposta ad
+altre), ma vedi il punto successivo sul suo limite attuale.
+
+**`MLTipDetector` non è mai stato validato sul nostro setup fisico reale.**
+Il dataset di training può includere dati sintetici
+(`scripts/generate_pose_dataset.py`) e/o il dataset reale pubblico
+DeepDarts (`scripts/import_deepdarts_dataset.py`, vedi
+[Utilizzo](#utilizzo)) — ma quest'ultimo è stato girato su bersagli e
+webcam diversi dai nostri. Un fine-tuning su un piccolo set raccolto con
+il **nostro** setup fisico (marker, webcam, bersaglio specifici), una
+volta disponibile, resta lavoro futuro (vedi [Roadmap](#roadmap)).
+
+**Un solo impatto per confronto tra frame, in entrambi i detector.**
+`ImpactDetector.detect()` ritorna al più un `Impact` per coppia di frame,
+per costruzione (sia in `FrameDiffDetector` che in `MLTipDetector`, che pure
+può rilevare più freccette in un frame ma ne restituisce solo la più
+confidente): due freccette che atterrano nello stesso identico frame
+verrebbero quindi rilevate come una sola. In pratica il framerate della
+camera rende l'evento raro, ma è un limite noto, non un edge case gestito.
 
 **Nessun rilevamento di fine turno anticipata.** Un turno viene chiuso al
 terzo impatto rilevato, o alla fine del video se ne restano meno di tre in
@@ -319,11 +467,17 @@ freccette).
 
 ## Roadmap
 
-- **Webcam live**: l'interfaccia `FrameSource` è già pensata per questo —
-  serve solo una `WebcamSource` che avvolga `cv2.VideoCapture(0)`, nessun
-  altro modulo cambia. Rimandato finché non c'è un setup fisico (marker
-  stampati, bersaglio, webcam) su cui validare le soglie di detection con
-  dati reali, non sintetici.
-- Euristica di confine turno per stream continui (vedi sopra).
-- Modello di sfondo multi-frame per la detection, per migliorare la
-  robustezza a impatti ravvicinati e a mani/ombre in movimento.
+- **Fine-tuning di `MLTipDetector` sul nostro setup fisico**: raccogliere
+  un piccolo set di frame reali con la nostra webcam/bersaglio (ora che
+  entrambi esistono) ed eseguire un fine-tuning sul checkpoint
+  sintetico+DeepDarts, per colpire il gap documentato in
+  [Limiti noti](#limiti-noti).
+- **Euristica di confine turno per stream continui** (webcam live: nessun
+  modo oggi di riconoscere un turno chiuso a 1-2 freccette senza aspettare
+  la terza — vedi sopra).
+- **Estensione multi-keypoint**: oggi `MLTipDetector` predice un solo
+  keypoint (la punta); un secondo keypoint su fusto/aletta potrebbe
+  aiutare a distinguere l'orientamento e a filtrare falsi positivi.
+- Modello di sfondo multi-frame per `FrameDiffDetector` (es. media mobile
+  o MOG2), per migliorare la robustezza a impatti ravvicinati e a
+  mani/ombre in movimento sul percorso classico.

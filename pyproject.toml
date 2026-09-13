@@ -16,6 +16,13 @@ dependencies = [
 [project.scripts]
 dartvision = "dartvision:main"
 
+[project.optional-dependencies]
+# Necessario solo per MLTipDetector (inferenza) e scripts/train_pose_model.py
+# (training, tipicamente su una macchina con GPU). Non richiesto per il
+# resto del progetto: FrameDiffDetector, dashboard, scoring, persistenza
+# funzionano senza questo extra.
+ml = ["ultralytics>=8.3.0"]
+
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
 build-backend = "uv_build"

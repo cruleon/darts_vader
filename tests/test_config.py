@@ -72,3 +72,44 @@ def test_marker_outside_plane_extent_raises(tmp_path):
     raw["rectified_plane"]["half_extent_mm"] = 10.0
     with pytest.raises(ConfigError, match="half_extent_mm"):
         _write_and_load(tmp_path, raw)
+
+
+def test_real_config_has_ml_detection_section():
+    config = load_config(CONFIG_PATH)
+    assert config.ml_detection.device in {"auto", "cpu", "cuda"}
+    assert 0.0 < config.ml_detection.confidence_threshold <= 1.0
+
+
+def test_missing_ml_detection_section_raises(tmp_path):
+    raw = _load_raw()
+    del raw["ml_detection"]
+    with pytest.raises(ConfigError, match="ml_detection"):
+        _write_and_load(tmp_path, raw)
+
+
+def test_ml_detection_invalid_device_raises(tmp_path):
+    raw = _load_raw()
+    raw["ml_detection"]["device"] = "tpu"
+    with pytest.raises(ConfigError, match="device"):
+        _write_and_load(tmp_path, raw)
+
+
+def test_ml_detection_confidence_threshold_out_of_range_raises(tmp_path):
+    raw = _load_raw()
+    raw["ml_detection"]["confidence_threshold"] = 1.5
+    with pytest.raises(ConfigError, match="confidence_threshold"):
+        _write_and_load(tmp_path, raw)
+
+
+def test_ml_detection_non_increasing_candidate_areas_raise(tmp_path):
+    raw = _load_raw()
+    raw["ml_detection"]["candidate_max_area_px"] = raw["ml_detection"]["candidate_min_area_px"]
+    with pytest.raises(ConfigError, match="candidate_max_area_px"):
+        _write_and_load(tmp_path, raw)
+
+
+def test_ml_detection_negative_roi_padding_raises(tmp_path):
+    raw = _load_raw()
+    raw["ml_detection"]["roi_padding_px"] = -1.0
+    with pytest.raises(ConfigError, match="roi_padding_px"):
+        _write_and_load(tmp_path, raw)

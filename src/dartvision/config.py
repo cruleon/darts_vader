@@ -85,12 +85,23 @@ class DetectionConfig:
 
 
 @dataclass(frozen=True)
+class MLDetectionConfig:
+    model_path: str
+    confidence_threshold: float
+    device: str  # "auto" | "cpu" | "cuda"
+    roi_padding_px: float
+    candidate_min_area_px: float
+    candidate_max_area_px: float
+
+
+@dataclass(frozen=True)
 class AppConfig:
     board: BoardConfig
     aruco: ArucoConfig
     rectified_plane: RectifiedPlaneConfig
     calibration: CalibrationConfig
     detection: DetectionConfig
+    ml_detection: MLDetectionConfig
 
 
 def _require(mapping: dict, key: str, context: str) -> object:
@@ -192,6 +203,42 @@ def _build_detection(raw: dict) -> DetectionConfig:
     )
 
 
+_VALID_ML_DEVICES = {"auto", "cpu", "cuda"}
+
+
+def _build_ml_detection(raw: dict) -> MLDetectionConfig:
+    confidence_threshold = float(_require(raw, "confidence_threshold", "ml_detection"))
+    if not (0.0 < confidence_threshold <= 1.0):
+        raise ConfigError("ml_detection.confidence_threshold deve essere in (0, 1]")
+
+    device = str(_require(raw, "device", "ml_detection"))
+    if device not in _VALID_ML_DEVICES:
+        raise ConfigError(
+            f"ml_detection.device deve essere uno tra {sorted(_VALID_ML_DEVICES)}, trovato '{device}'"
+        )
+
+    roi_padding_px = float(_require(raw, "roi_padding_px", "ml_detection"))
+    if roi_padding_px < 0:
+        raise ConfigError("ml_detection.roi_padding_px deve essere >= 0")
+
+    min_area = float(_require(raw, "candidate_min_area_px", "ml_detection"))
+    max_area = float(_require(raw, "candidate_max_area_px", "ml_detection"))
+    if max_area <= min_area:
+        raise ConfigError(
+            "ml_detection.candidate_max_area_px deve essere maggiore di "
+            "ml_detection.candidate_min_area_px"
+        )
+
+    return MLDetectionConfig(
+        model_path=str(_require(raw, "model_path", "ml_detection")),
+        confidence_threshold=confidence_threshold,
+        device=device,
+        roi_padding_px=roi_padding_px,
+        candidate_min_area_px=min_area,
+        candidate_max_area_px=max_area,
+    )
+
+
 def load_config(path: str | Path) -> AppConfig:
     """Legge e valida il file YAML di configurazione fisica del setup."""
     path = Path(path)
@@ -209,6 +256,7 @@ def load_config(path: str | Path) -> AppConfig:
     rectified_plane = _build_rectified_plane(_require(raw, "rectified_plane", "root"))
     calibration = _build_calibration(_require(raw, "calibration", "root"))
     detection = _build_detection(_require(raw, "detection", "root"))
+    ml_detection = _build_ml_detection(_require(raw, "ml_detection", "root"))
 
     if aruco.markers and len(aruco.markers) < calibration.min_markers_required:
         raise ConfigError(
@@ -233,4 +281,5 @@ def load_config(path: str | Path) -> AppConfig:
         rectified_plane=rectified_plane,
         calibration=calibration,
         detection=detection,
+        ml_detection=ml_detection,
     )
