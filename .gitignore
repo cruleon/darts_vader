@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Dati locali generati/di test
+data/videos/*
+!data/videos/.gitkeep
+data/*.db
+
+# Marker generati (riproducibili con scripts/generate_aruco_markers.py)
+docs/markers/*
+!docs/markers/.gitkeep

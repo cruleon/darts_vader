@@ -1,0 +1,102 @@
+# Configurazione fisica del setup (bersaglio + marker ArUco).
+# Misurare una sola volta con il setup reale e aggiornare qui: il codice
+# non contiene NESSUN numero relativo alla geometria fisica.
+#
+# Convenzioni:
+# - Tutte le distanze fisiche sono in millimetri (mm).
+# - Origine (0,0) = centro del bersaglio (bullseye interno).
+# - Asse x: verso destra: asse y: verso il basso (stessa convenzione
+#   dell'immagine raddrizzata, per evitare conversioni inutili).
+# - "angolo" nel resto del sistema è sempre misurato in senso orario
+#   a partire da "in alto" (verso -y), coerente con la numerazione
+#   ufficiale del bersaglio.
+
+board:
+  # Raggi degli anelli standard (bersaglio regolamentare), dal centro
+  # verso l'esterno. Sorgente: misure ufficiali WDF/PDC.
+  inner_bull_radius_mm: 6.35 # bullseye interno (50 punti)
+  outer_bull_radius_mm: 15.9 # bull esterno (25 punti)
+  triple_inner_radius_mm: 99.0 # bordo interno anello tripli
+  triple_outer_radius_mm: 107.0 # bordo esterno anello tripli
+  double_inner_radius_mm: 162.0 # bordo interno anello doppi
+  double_outer_radius_mm: 170.0 # bordo esterno anello doppi (= raggio di gioco)
+
+  sector_count: 20
+
+  # Numeri dei settori in ordine orario, a partire dal settore che si
+  # trova "in alto" (offset 0). Ordine ufficiale del bersaglio regolamentare.
+  sector_order:
+    [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9, 12, 5]
+
+  # Offset angolare (gradi, senso orario da "in alto") del CENTRO del
+  # primo settore in sector_order (il 20). 0 = il 20 e' esattamente in
+  # alto. Da regolare se il bersaglio fisico e' ruotato rispetto a
+  # questa convenzione.
+  sector0_offset_deg: 0.0
+
+aruco:
+  # Nome del dizionario OpenCV (cv2.aruco.DICT_*).
+  dictionary: DICT_4X4_50
+
+  # Lato fisico del marker stampato (mm), bordo nero incluso.
+  marker_length_mm: 40.0
+
+  # Posizione del CENTRO di ciascun marker rispetto al centro del
+  # bersaglio (stessa convenzione x/y del bersaglio sopra). Servono
+  # almeno 4 marker, non allineati, misurati fisicamente una volta
+  # posizionati attorno al bersaglio.
+  markers:
+    - id: 0
+      x_mm: -220.0
+      y_mm: -220.0
+    - id: 1
+      x_mm: 220.0
+      y_mm: -220.0
+    - id: 2
+      x_mm: 220.0
+      y_mm: 220.0
+    - id: 3
+      x_mm: -220.0
+      y_mm: 220.0
+
+# Piano raddrizzato: l'immagine "vista dall'alto" prodotta dall'homography.
+# Deve essere abbastanza grande da contenere anche i marker (che stanno
+# fuori dal raggio di gioco del bersaglio).
+rectified_plane:
+  size_px: 1000
+  # Semi-lato dell'area fisica (mm) rappresentata dal piano raddrizzato.
+  # Deve essere >= alla distanza massima dei marker dal centro (qui i
+  # marker sono a 220mm/220mm, cioe' ~311mm dal centro: serve margine
+  # anche per il loro ingombro fisico).
+  half_extent_mm: 350.0
+
+calibration:
+  # Numero minimo di marker rilevati richiesti per calcolare l'homography.
+  min_markers_required: 4
+
+detection:
+  # Il confronto tra frame avviene sui pixel della camera grezza (piu'
+  # stabile ed efficiente che ri-raddrizzare ogni frame); i contorni
+  # candidati vengono pero' proiettati sul piano raddrizzato PRIMA di
+  # applicare le soglie di area, cosi' i valori sotto sono in pixel^2
+  # del piano raddrizzato (mm_per_px fisso) e restano validi anche se
+  # la webcam e' piu' vicina o lontana dal bersaglio in una sessione
+  # diversa.
+
+  # Soglia (0-255) sulla differenza assoluta tra frame in scala di
+  # grigi per isolare oggetti comparsi (freccette, mani, ombre...).
+  diff_threshold: 25
+
+  # Dimensione (lato, in pixel) del kernel usato per le operazioni
+  # morfologiche di pulizia della maschera (rimuove rumore puntiforme,
+  # richiude piccoli buchi nella sagoma rilevata).
+  morph_kernel_size: 5
+
+  # Area minima (px^2 sul piano raddrizzato) di una regione candidata
+  # per essere considerata un possibile impatto: scarta rumore/speckle.
+  min_impact_area_px: 15
+
+  # Area massima (px^2 sul piano raddrizzato): oltre questa soglia la
+  # regione e' quasi certamente una mano che entra nel campo o un'ombra
+  # estesa, non una singola freccetta.
+  max_impact_area_px: 6000
