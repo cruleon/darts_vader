@@ -7,6 +7,8 @@ with a small neural network and runs a live x01 game in a fullscreen web app. Ev
 reviewed on a still photo before it counts, and every confirmed turn becomes a new training
 example for the tip model.
 
+![Reviewing a turn in DARTS VADER](docs/images/app-review.jpg)
+
 ## Features
 
 - **Marker-free board detection.** A full perspective homography is fitted directly to the rings
@@ -43,6 +45,10 @@ camera frame ──► board detector ──► homography: image pixels → boa
    - The red/green colour parity fixes the orientation up to 36°; the player confirms the 20 once
      per camera position.
    - Well-locked frames update a running estimate of the actual wire radii of the board in use.
+
+   ![Board detection](docs/images/board-detection.jpg)
+   *Fitted geometry on a fixed webcam (left) and on a handheld, oblique phone video (centre); on
+   the right, the fronto-parallel board rectified with the estimated homography.*
 2. **Tip detection** (`darts_vader/tips`).
    - The board is cropped from the frame and rotated so that the side closest to the camera is
      always at the bottom, which removes most of the variation between camera positions.
@@ -50,6 +56,11 @@ camera frame ──► board detector ──► homography: image pixels → boa
      resolution.
    - Peaks are mapped back to board millimetres through the crop homography and scored against
      the calibrated rings.
+
+   ![Tip detection on test photos](docs/images/tip-detection.jpg)
+   *TipNet on webcam test photos that were never used for training, shown in the
+   orientation-normalised view. Green circles are the manually labelled tips, pink crosses the
+   model predictions; the counter shows how many darts get the right score.*
 3. **Live scoring** (`LiveScorer`).
    - A tip becomes a dart once it is stable in 6 of the last 8 frames.
    - A board that stays free for 2 seconds means the darts have been pulled.
@@ -114,6 +125,10 @@ Run `python -m darts_vader --help` for camera, model and server options.
    or when the darts are pulled, the turn opens for review.
 4. **Review the turn.** Fix any dart if needed, then press **Enter** to confirm and save the turn
    as training data, or **K** to count the score without saving.
+
+| Calibration | Live game | Celebrations |
+| --- | --- | --- |
+| ![Confirming the 20](docs/images/app-calibration.jpg) | ![Live game](docs/images/app-live.jpg) | ![180 effect](docs/images/app-180.jpg) |
 
 ### Controls
 
