@@ -11,7 +11,29 @@ export function GamePanel({ state, send }: { state: EngineState; send: Send }) {
       <TurnCard state={state} />
       <div className="glass flex min-h-0 flex-1 items-center justify-center p-[0.9rem]">
         <MiniBoard state={state} send={send} />
+        <FinishLegend state={state} />
       </div>
+    </div>
+  );
+}
+
+/** Double that finishes the leg and how far each dart landed from it (double-out games). */
+function FinishLegend({ state }: { state: EngineState }) {
+  const darts = state.turn.filter((d) => d.finish);
+  if (!state.finish_target && darts.length === 0) return null;
+  return (
+    <div className="pointer-events-none absolute left-[1.2rem] top-[1.1rem] flex flex-col items-start gap-[0.45rem]">
+      {state.finish_target && (
+        <span className="flex items-center gap-[0.6rem]">
+          <span className="label !text-amber-300">Finish on</span>
+          <span className="checkout-pill">{state.finish_target}</span>
+        </span>
+      )}
+      {darts.map((d) => (
+        <span key={d.index} className="text-[1rem] font-semibold tabular-nums" style={{ color: DART_COLORS[d.index % 3] }}>
+          Dart {d.index + 1} · {Math.round(d.finish!.distance_mm)} mm from {d.finish!.target}
+        </span>
+      ))}
     </div>
   );
 }

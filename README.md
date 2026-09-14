@@ -18,6 +18,8 @@ example for the tip model.
   your own webcam photos.
 - **Live x01 games.** 101 to 1001, straight or double out, busts, checkout suggestions,
   three-dart averages, up to six players.
+- **Double-out practice.** In double-out games the mini board highlights the double that would
+  finish the leg and shows how many millimetres each dart landed from it.
 - **Turn review.** Darts can be moved, removed or added with a click before the turn is applied,
   with a magnifier for precise tip placement.
 - **Built-in data collection.** Confirmed turns are stored with the board homography and the tip

@@ -87,6 +87,15 @@ class X01:
         return suggest_checkout(rem, darts, self.double_out)
 
 
+def finishing_double(remaining: int) -> g.Hit | None:
+    """The double (or bullseye) that finishes `remaining` with a single dart, if there is one."""
+    if remaining == 50:
+        return g.Hit(25, 2)
+    if 2 <= remaining <= 40 and remaining % 2 == 0:
+        return g.Hit(remaining // 2, 2)
+    return None
+
+
 def _targets() -> list[tuple[str, int]]:
     t = [(f"S{n}", n) for n in range(1, 21)] + [(f"D{n}", 2 * n) for n in range(1, 21)]
     t += [(f"T{n}", 3 * n) for n in range(1, 21)] + [("25", 25), ("BULL", 50)]

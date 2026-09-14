@@ -91,6 +91,33 @@ def hit_region(x: float, y: float, rings=RING_RADII) -> tuple[float, float, floa
     return r_in, r_out, start, start + SECTOR_ANGLE
 
 
+def nearest_point_in_segment(x: float, y: float, hit: Hit, rings=RING_RADII) -> tuple[np.ndarray, float]:
+    """Closest point (model mm) of the region scoring `hit` to the point (x, y), and its distance.
+    Supports doubles, trebles, the bull and the bullseye (regions made of a single area)."""
+    r_bullseye, r_bull, t_in, t_out, d_in, d_out = rings
+    p = np.array([x, y], float)
+    r, theta = polar(x, y)
+    if hit.number == 25:
+        r_in, r_out = (0.0, r_bullseye) if hit.multiplier == 2 else (r_bullseye, r_bull)
+        if r_in <= r <= r_out:
+            return p, 0.0
+        target = r_out if r > r_out else r_in
+        q = p * (target / r) if r > 1e-9 else np.array([0.0, -target])
+        return q, float(np.linalg.norm(q - p))
+    if hit.multiplier not in (2, 3):
+        raise ValueError(f"{hit.label} is not a single region")
+    r_in, r_out = (d_in, d_out) if hit.multiplier == 2 else (t_in, t_out)
+    centre = SECTOR_ORDER.index(hit.number) * SECTOR_ANGLE
+    candidates = []
+    if abs((theta - centre + 180.0) % 360.0 - 180.0) <= SECTOR_ANGLE / 2:  # within the sector: move radially
+        candidates.append(model_points(np.clip(r, r_in, r_out), theta)[0])
+    for edge in (centre - SECTOR_ANGLE / 2, centre + SECTOR_ANGLE / 2):  # projections onto the two side wires
+        u = model_points(1.0, edge)[0]
+        candidates.append(float(np.clip(p @ u, r_in, r_out)) * u)
+    q = min(candidates, key=lambda c: float(np.linalg.norm(c - p)))
+    return q, float(np.linalg.norm(q - p))
+
+
 def model_points(r, theta_deg) -> np.ndarray:
     """(N, 2) model points from radii and angles (scalars or arrays, broadcast together)."""
     r, t = np.broadcast_arrays(np.asarray(r, float), np.deg2rad(np.asarray(theta_deg, float)))

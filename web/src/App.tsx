@@ -126,7 +126,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const st = stateRef.current;
-      if (!st || setupOpen || (e.target as HTMLElement | null)?.tagName === "INPUT") return;
+      // keys already handled by a dialog (e.g. Enter that starts a new game) must not act on the game too
+      if (!st || setupOpen || e.defaultPrevented || (e.target as HTMLElement | null)?.tagName === "INPUT") return;
       const key = e.key.toLowerCase();
       const mode = st.mode;
       if (key === "f") toggleFullscreen();

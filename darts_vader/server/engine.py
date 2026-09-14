@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 
 from ..board import BoardState, DartboardDetector, geometry as g
-from ..game.x01 import BUST, WIN, X01
+from ..game.x01 import BUST, WIN, X01, finishing_double
 from ..labels import LABELLED, NO_TIPS, LabelSession, tip_record
 from ..tips.tracker import APPROX, CLICK, Dart, LiveConfig, LiveScorer
 
@@ -338,21 +338,34 @@ class GameEngine:
 
     # ------------------------------------------------------------------ state for the frontend
 
+    def _finish_distance(self, dart: Dart, remaining: int, rings) -> dict | None:
+        """How far a dart landed from the double that would have finished the leg (double-out games)."""
+        target = finishing_double(remaining) if self.game.double_out else None
+        if target is None:
+            return None
+        point, distance = g.nearest_point_in_segment(*dart.tip_mm, target, rings)
+        return dict(target=target.label, distance_mm=round(distance, 1), point_mm=_xy(point))
+
     def state(self) -> dict:
         with self.lock:
             mode, game, scorer = self.mode, self.game, self.scorer
             board = {CALIBRATING: self.candidate, PLAYING: self.board,
                      REVIEW: self.review["board"] if self.review else None}.get(mode)
-            turn = [dict(index=k, label=d.hit.label, score=int(d.hit.score), number=int(d.hit.number),
-                         multiplier=int(d.hit.multiplier), tip_mm=_xy(d.tip_mm),
-                         tip_img=_xy(board.to_image([d.tip_mm])[0]) if board is not None else None,
-                         origin=d.origin, confidence=round(float(d.confidence), 3))
-                    for k, d in enumerate(scorer.turn)]
+            rings = board.rings if board is not None else g.RING_RADII
+            turn, remaining_before = [], game.remaining
+            for k, d in enumerate(scorer.turn):
+                turn.append(dict(index=k, label=d.hit.label, score=int(d.hit.score), number=int(d.hit.number),
+                                 multiplier=int(d.hit.multiplier), tip_mm=_xy(d.tip_mm),
+                                 tip_img=_xy(board.to_image([d.tip_mm])[0]) if board is not None else None,
+                                 origin=d.origin, confidence=round(float(d.confidence), 3),
+                                 finish=self._finish_distance(d, remaining_before, rings)))
+                remaining_before -= d.hit.score
             total = sum(t["score"] for t in turn)
             remaining = game.remaining - total
             bust = remaining < 0 or (game.double_out and remaining == 1)
             checkout = (game.checkout(remaining, 3 - len(turn))
                         if mode == PLAYING and remaining > 0 and len(turn) < 3 else None)
+            finish_target = finishing_double(remaining) if game.double_out and len(turn) < 3 else None
             detections = scorer.detections if self.show_detections and mode == PLAYING else np.zeros((0, 3))
             return dict(
                 mode=mode,
@@ -370,6 +383,7 @@ class GameEngine:
                 remaining_after=remaining,
                 bust=bust,
                 checkout=checkout,
+                finish_target=finish_target.label if finish_target else None,
                 waiting=bool(scorer.waiting_empty) and mode == PLAYING,
                 board_lost=self.lost_frames >= LOST_FRAMES and mode == PLAYING,
                 ignored=[_xy(z) for z in scorer.ignored],

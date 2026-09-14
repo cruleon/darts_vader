@@ -13,6 +13,8 @@ export interface Dart {
   tip_img: Vec2 | null;
   origin: "model" | "corrected" | "click" | "approx" | string;
   confidence: number;
+  /** Double-out games: distance from the double that would have finished the leg with this dart. */
+  finish: { target: string; distance_mm: number; point_mm: Vec2 } | null;
 }
 
 export interface Player {
@@ -60,6 +62,8 @@ export interface EngineState {
   remaining_after: number;
   bust: boolean;
   checkout: string | null;
+  /** Double that finishes the leg with the next dart (double-out games only). */
+  finish_target: string | null;
   waiting: boolean;
   board_lost: boolean;
   ignored: Vec2[];

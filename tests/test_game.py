@@ -2,11 +2,13 @@
 import sys
 from pathlib import Path
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from darts_vader.board import geometry as g  # noqa: E402
 from darts_vader.board.geometry import Hit  # noqa: E402
-from darts_vader.game.x01 import BUST, OK, WIN, X01, suggest_checkout  # noqa: E402
+from darts_vader.game.x01 import BUST, OK, WIN, X01, finishing_double, suggest_checkout  # noqa: E402
 
 
 def test_score_labels():
@@ -22,6 +24,27 @@ def test_score_model_point():
     assert g.score_model_point(*g.model_points(166.0, 18.0)[0]) == Hit(1, 2)
     assert g.score_model_point(*g.model_points(60.0, 180.0)[0]) == Hit(3, 1)
     assert g.score_model_point(*g.model_points(200.0, 0.0)[0]) == Hit(0, 0)
+
+
+def test_nearest_point_in_segment():
+    d20 = Hit(20, 2)
+    inside = g.model_points(166.0, 2.0)[0]
+    point, distance = g.nearest_point_in_segment(*inside, d20)
+    assert distance == 0.0 and np.allclose(point, inside)
+    point, distance = g.nearest_point_in_segment(0.0, 0.0, d20)  # centre: every point of the inner wire ties
+    assert np.isclose(distance, g.R_DOUBLE_IN) and g.score_model_point(*(point * 1.001)) == d20
+    _, distance = g.nearest_point_in_segment(*g.model_points(200.0, 0.0)[0], d20)  # beyond the outer wire
+    assert np.isclose(distance, 200.0 - g.R_DOUBLE_OUT)
+    _, distance = g.nearest_point_in_segment(*g.model_points(166.0, 18.0)[0], d20)  # D1: across the side wire
+    assert np.isclose(distance, 166.0 * np.sin(np.radians(9.0)))
+    _, distance = g.nearest_point_in_segment(0.0, -30.0, Hit(25, 2))
+    assert np.isclose(distance, 30.0 - g.R_BULLSEYE)
+
+
+def test_finishing_double():
+    assert finishing_double(40) == Hit(20, 2) and finishing_double(2) == Hit(1, 2)
+    assert finishing_double(50) == Hit(25, 2)
+    assert all(finishing_double(v) is None for v in (41, 42, 60, 1, 0, -4))
 
 
 def test_regular_turn():
