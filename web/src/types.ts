@@ -1,0 +1,91 @@
+export type Mode = "searching" | "calibrating" | "playing" | "review";
+export type Tone = "info" | "success" | "warning" | "danger" | "violet" | "gold";
+export type Mat3 = number[][];
+export type Vec2 = [number, number];
+
+export interface Dart {
+  index: number;
+  label: string;
+  score: number;
+  number: number;
+  multiplier: number;
+  tip_mm: Vec2;
+  tip_img: Vec2 | null;
+  origin: "model" | "corrected" | "click" | "approx" | string;
+  confidence: number;
+}
+
+export interface Player {
+  name: string;
+  score: number;
+  legs: number;
+  average: number;
+}
+
+export interface HistoryItem {
+  player: string;
+  darts: string[];
+  points: number;
+  outcome: "ok" | "bust" | "win";
+}
+
+export type EngineEvent =
+  | { id: number; kind: "toast"; text: string; tone: Tone }
+  | { id: number; kind: "effect"; effect: EffectKind; text: string }
+  | { id: number; kind: "dart"; index: number; label: string; number: number; multiplier: number; origin: string }
+  | { id: number; kind: "removed"; label: string }
+  | { id: number; kind: "moved"; index: number; label: string }
+  | { id: number; kind: "review"; reason: string }
+  | { id: number; kind: "turn"; player: string; darts: string[]; points: number; remaining: number; outcome: string }
+  | { id: number; kind: "board_found" }
+  | { id: number; kind: "set20" }
+  | { id: number; kind: "game_start" }
+  | { id: number; kind: "new_game" };
+
+export type EffectKind = "180" | "bust" | "win" | "ton";
+
+export interface EngineState {
+  mode: Mode;
+  frame: { w: number; h: number } | null;
+  board: { H_inv: Mat3; rings: number[] } | null;
+  game: {
+    start: number;
+    double_out: boolean;
+    current: number;
+    players: Player[];
+    history: HistoryItem[];
+  };
+  turn: Dart[];
+  turn_total: number;
+  remaining_after: number;
+  bust: boolean;
+  checkout: string | null;
+  waiting: boolean;
+  board_lost: boolean;
+  ignored: Vec2[];
+  detections: Vec2[];
+  show_detections: boolean;
+  review: { id: number; reason: string; w: number; h: number } | null;
+  fps_ai: number;
+  saved: number;
+  events: EngineEvent[];
+  source_error: string | null;
+}
+
+export type Command =
+  | { type: "set20"; x: number; y: number }
+  | { type: "confirm_orientation" }
+  | { type: "start_review" }
+  | { type: "resume" }
+  | { type: "confirm"; save: boolean }
+  | { type: "undo" }
+  | { type: "remove"; index: number }
+  | { type: "move"; index: number; x: number; y: number }
+  | { type: "add"; x: number; y: number }
+  | { type: "add_sim"; x_mm: number; y_mm: number }
+  | { type: "clear_ignored" }
+  | { type: "toggle_detections" }
+  | { type: "recalibrate" }
+  | { type: "new_game"; players: string[]; start: number; double_out: boolean };
+
+export type Send = (command: Command) => void;

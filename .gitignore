@@ -1,27 +1,42 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 .venv/
+venv/
 .pytest_cache/
-.ruff_cache/
 
-# Dati locali generati/di test
-data/videos/*
-!data/videos/.gitkeep
-data/*.db
+# Frontend
+web/node_modules/
+web/dist/
 
-# Dataset sintetico generato (riproducibile con
-# scripts/generate_pose_dataset.py) e pesi addestrati.
-data/pose_dataset/*
-!data/pose_dataset/.gitkeep
-data/deepdarts_pose_dataset/*
-!data/deepdarts_pose_dataset/.gitkeep
-models/*.pt
+# Datasets, labels, recordings and trained models (kept locally, never versioned)
+training_data/
+dataset*/
+models*/
+webcam_labels/
+labels/
+recordings/
+frames/
+risultati*/
+screenshots/
+webcam_calibration.json
+*.pt
+*.pth
+*.onnx
 
-# Dataset DeepDarts (McNally 2021, CC-BY): scaricato manualmente da IEEE
-# Dataport, non ridistribuito in questo repository. Vedi
-# scripts/import_deepdarts_dataset.py per come convertirlo.
-training_data_IEEE/
+# Personal test media
+tests/*.mp4
+*.mp4
+*.avi
+*.mov
 
-# Marker generati (riproducibili con scripts/generate_aruco_markers.py)
-docs/markers/*
-!docs/markers/.gitkeep
+# Archived experiments and personal notes
+archive/
+STATO_LAVORI.md
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

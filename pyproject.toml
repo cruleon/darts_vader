@@ -1,42 +1,36 @@
-[project]
-name = "dartvision"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [
-    "numpy>=2.4.6",
-    "opencv-contrib-python>=4.8",
-    "pandas>=3.0.5",
-    "plotly>=7.0.0",
-    "pyyaml>=6.0.3",
-    "streamlit>=1.63.0",
-]
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
 
-[project.scripts]
-dartvision = "dartvision:main"
+[project]
+name = "darts-vader"
+version = "1.0.0"
+description = "Automatic darts scoring from a single webcam: dartboard detection, learned dart-tip detection and a live x01 web app."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+]
 
 [project.optional-dependencies]
-# Necessario solo per MLTipDetector (inferenza) e scripts/train_pose_model.py
-# (training, tipicamente su una macchina con GPU). Non richiesto per il
-# resto del progetto: FrameDiffDetector, dashboard, scoring, persistenza
-# funzionano senza questo extra.
-ml = ["ultralytics>=8.3.0"]
-
-[build-system]
-requires = ["uv_build>=0.12.13,<0.13.0"]
-build-backend = "uv_build"
-
-[dependency-groups]
+app = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
+train = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "pandas>=2.0",
+]
 dev = [
-    "pytest>=9.1.1",
-    "ruff>=0.16.7",
+    "pytest>=8",
 ]
 
-[tool.ruff.lint]
-# DTZ: e' un'app locale single-user, i timestamp sono orario locale del
-# dispositivo di gioco, non serve consapevolezza del fuso orario.
-# C408: lo stile idiomatico di Plotly usa dict(...) per ogni kwarg
-# annidato (layout, marker, line, ...): riscriverli come letterali
-# richiederebbe virgolette su ogni chiave senza guadagno di leggibilita'.
-ignore = ["DTZ", "C408"]
+[tool.setuptools.packages.find]
+include = ["darts_vader*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

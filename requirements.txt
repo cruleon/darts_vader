@@ -1,0 +1,13 @@
+# Board detection
+numpy>=1.24
+opencv-python>=4.8
+
+# Tip model and web app (install the CUDA build of PyTorch from pytorch.org for GPU inference)
+torch>=2.1
+torchvision>=0.16
+fastapi>=0.110
+uvicorn[standard]>=0.27
+
+# Dataset tools and tests
+pandas>=2.0
+pytest>=8
