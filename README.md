@@ -23,9 +23,10 @@ example for the tip model.
 - **Players and matches.** Player photos (uploaded or taken with any camera), matches played as
   a single leg or first to 2, 3 or 5 legs.
 - **Match statistics.** When the match ends, the winning animation morphs into a statistics
-  screen with one section per player: a scatter plot of every dart with its grouping, averages,
-  first-nine average, checkout rate, tons, busts, hit mix, favourite segment and distance from the
-  finishing doubles.
+  screen with one section per player: a scatter plot of every dart with its grouping, a chart of
+  how the turn scores are distributed (share of turns under 40, 40+, 60+, 100+, 140+ and 180, on a
+  scale shared by all players), averages, first-nine average, checkout rate, busts, hit mix,
+  favourite segment and distance from the finishing doubles.
 - **Turn review.** Darts can be moved, removed or added with a click before the turn is applied,
   with a magnifier for precise tip placement.
 - **Built-in data collection.** Confirmed turns are stored with the board homography and the tip
@@ -50,8 +51,11 @@ camera frame ──► board detector ──► homography: image pixels → boa
    - The guess is refined iteratively. Ring edges are measured along 120 radial rays and sector
      boundaries along circular bands of the rectified board. A homography is then re-estimated
      with a Levenberg–Marquardt point-to-curve fit and a robust Cauchy loss.
-   - The red/green colour parity fixes the orientation up to 36°; the player confirms the 20 once
-     per camera position.
+   - The red/green colour parity fixes the orientation up to 36°. The first time, the player
+     confirms the 20; the ring of printed numbers is then sampled in board coordinates and kept as
+     a template. On later locks, from any camera position, the detected board is rotated to the
+     sector shift whose number ring correlates best with the template, so the 20 is found
+     automatically (165 of 165 photos from 15 webcam sessions, with a template from one session).
    - Well-locked frames update a running estimate of the actual wire radii of the board in use.
 
    ![Board detection](docs/images/board-detection.jpg)
@@ -128,7 +132,9 @@ Run `python -m darts_vader --help` for camera, model and server options.
 
 1. **Frame the whole board** and wait for the status to switch to *Calibration*.
 2. **Check the highlighted 20.** If it is wrong, click the real 20 sector, then press **Enter**.
-   The orientation is remembered in `webcam_calibration.json`.
+   This is needed only once: the board's numbers are remembered (`board_numbers.npy`) and from
+   then on the 20 is recognised automatically and the game starts as soon as the board is locked.
+   Press **R** to recalibrate and set the 20 by hand again.
 3. **Throw.** Darts appear live on the camera view and on the mini board. After the third dart,
    or when the darts are pulled, the turn opens for review.
 4. **Review the turn.** Fix any dart if needed, then press **Enter** to confirm and save the turn
@@ -147,7 +153,7 @@ Run `python -m darts_vader --help` for camera, model and server options.
 | Space | Open the review manually |
 | U | Undo the last dart |
 | Esc | Close the magnifier / return to the game |
-| R | Recalibrate the board |
+| R | Recalibrate the board and set the 20 by hand |
 | D | Show raw tip detections |
 | C | Clear ignored spots |
 | G | New game |

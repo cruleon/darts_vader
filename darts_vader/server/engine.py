@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 
 from ..board import BoardState, DartboardDetector, geometry as g
+from ..board.orientation import load_template, match_orientation, number_ring
 from ..game.stats import DartRecord, TurnRecord, match_summary
 from ..game.x01 import BUST, WIN, X01, finishing_double
 from ..labels import LABELLED, NO_TIPS, LabelSession, tip_record
@@ -68,6 +69,10 @@ class GameEngine:
         self.board: BoardState | None = None  # confirmed orientation
         self.candidate: BoardState | None = None  # locked board waiting for the 20 to be confirmed
         self.saved_orientation = self._load_orientation()
+        # number ring of the confirmed board: recognises the 20 automatically on later locks
+        self.numbers_file = calibration_file.with_name("board_numbers.npy") if calibration_file is not None else None
+        self.numbers = load_template(self.numbers_file) if self.numbers_file is not None else None
+        self.manual_orientation = False  # the next lock asks for the 20 even if it could be recognised
         self.lock_count = 0
         self.lost_frames = 0
         self.reset_detector = False
@@ -132,21 +137,36 @@ class GameEngine:
         detected = self.detector.process(frame)
         with self.lock:
             if self.mode == SEARCHING:
-                self._search(detected)
+                self._search(frame, detected)
             elif self.mode == CALIBRATING:
                 if detected is not None and self.candidate is not None:
                     self.candidate = detected.aligned_to(self.candidate)
             elif self.mode == PLAYING and self.board is not None:
                 self._play(frame, detected, now)
 
-    def _search(self, detected: BoardState | None) -> None:
+    def _search(self, frame: np.ndarray, detected: BoardState | None) -> None:
         confident = detected is not None and detected.confidence >= 0.7
         self.lock_count = self.lock_count + 1 if confident else 0
-        if self.lock_count >= LOCK_FRAMES:
+        if self.lock_count < LOCK_FRAMES:
+            return
+        self._emit("board_found")
+        match = None
+        if self.numbers is not None and not self.manual_orientation:
+            match = match_orientation(frame, detected, self.numbers)
+        if match is not None and match.confident:
+            self.candidate = detected.rotated(match.sectors)
+            self.toast("20 recognised automatically · press R to set it by hand", "violet")
+            self._start_game()
+        else:
             self.candidate = detected.aligned_to(self.saved_orientation) if self.saved_orientation else detected
             self.mode = CALIBRATING
-            self._emit("board_found")
             self.toast("Board found: check the 20 and press ENTER", "violet")
+
+    def _start_game(self) -> None:
+        self.board, self.mode = self.candidate, PLAYING
+        self._store_orientation(self.board)
+        self._emit("game_start")
+        self.toast(f"Game on: {self.game.start}! {self.game.player} throws first", "success")
 
     def _play(self, frame: np.ndarray, detected: BoardState | None, now: float) -> None:
         if detected is not None:
@@ -281,10 +301,12 @@ class GameEngine:
 
     def _cmd_confirm_orientation(self, _msg: dict) -> None:
         if self.mode == CALIBRATING and self.candidate is not None:
-            self.board, self.mode = self.candidate, PLAYING
-            self._store_orientation(self.board)
-            self._emit("game_start")
-            self.toast(f"Game on: {self.game.start}! {self.game.player} throws first", "success")
+            if self.latest_frame is not None:
+                self.numbers = number_ring(self.latest_frame, self.candidate)
+                if self.numbers_file is not None and self.save_calibration:
+                    np.save(self.numbers_file, self.numbers)
+            self.manual_orientation = False
+            self._start_game()
 
     def _cmd_start_review(self, _msg: dict) -> None:
         if not self.start_review("manual"):
@@ -347,7 +369,7 @@ class GameEngine:
     def _cmd_recalibrate(self, _msg: dict) -> None:
         if self.mode in (SEARCHING, CALIBRATING, PLAYING):
             self.mode, self.board, self.candidate, self.lock_count = SEARCHING, None, None, 0
-            self.reset_detector = True
+            self.reset_detector, self.manual_orientation = True, True
             self.toast("Recalibrating: looking for the board", "violet")
 
     def _cmd_debug_effect(self, msg: dict) -> None:

@@ -1,8 +1,8 @@
 import confetti from "canvas-confetti";
 import { animate, motion, useMotionValue, useTransform, type Variants } from "framer-motion";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { playerColor } from "../lib/players";
-import type { EngineState, PlayerStats } from "../types";
+import type { EngineState, PlayerStats, ScoreBand } from "../types";
 import { BoardFace } from "./BoardFace";
 import { Avatar } from "./PlayerPhoto";
 import { Kbd } from "./ui";
@@ -28,6 +28,8 @@ export function StatsScreen({ state, onRematch, onNewGame }: { state: EngineStat
   const columns = count <= 3 ? count : count === 4 ? 2 : 3;
   const winner = summary.players[summary.winner];
   const winnerColor = playerColor(summary.winner, count);
+  const highestShare = Math.max(0, ...summary.players.flatMap((p) => p.score_bands.map((b) => b.pct)));
+  const scaleMax = Math.min(100, Math.max(25, Math.ceil(highestShare / 25) * 25));
 
   useEffect(() => {
     const colors = [winnerColor, "#ffd166", "#ffffff"];
@@ -117,6 +119,7 @@ export function StatsScreen({ state, onRematch, onNewGame }: { state: EngineStat
               winner={i === summary.winner}
               count={count}
               doubleOut={summary.double_out}
+              scaleMax={scaleMax}
               delay={CARD_DELAY + i * CARD_STAGGER}
             />
           ))}
@@ -133,10 +136,11 @@ interface SectionProps {
   winner: boolean;
   count: number;
   doubleOut: boolean;
+  scaleMax: number; // top of the score chart scale, shared by every player so the columns compare
   delay: number;
 }
 
-const BOARD_SIZE: Record<number, string> = { 1: "h-[30rem]", 2: "h-[25rem]", 3: "h-[19rem]" };
+const BOARD_SIZE: Record<number, string> = { 1: "h-[25rem]", 2: "h-[21rem]", 3: "h-[19rem]" };
 const DETAIL_COLUMNS: Record<number, string> = { 1: "grid-cols-6", 2: "grid-cols-4", 3: "grid-cols-3" };
 const KPI_VALUE: Record<number, string> = { 1: "text-[4rem]", 2: "text-[4rem]", 3: "text-[2.8rem]" };
 // shorter labels for the compact layout used with four or more players
@@ -153,9 +157,11 @@ const SHORT_LABELS: Record<string, string> = {
   "Closest to double": "Closest dbl",
 };
 
-function PlayerSection({ stats, photo, color, winner, count, doubleOut, delay }: SectionProps) {
+function PlayerSection({ stats, photo, color, winner, count, doubleOut, scaleMax, delay }: SectionProps) {
   const compact = count >= 4;
   const label = (text: string) => (compact ? (SHORT_LABELS[text] ?? text) : text);
+  const narrowKpis = count >= 3; // KPI tiles are too narrow for the long labels and decimals
+  const kpiLabel = (text: string) => (narrowKpis ? (SHORT_LABELS[text] ?? text) : text);
   const dash = "—";
   const mm = (v: number | null) => (v == null ? dash : `${v.toFixed(1)} mm`);
   const share = (n: number, pct: number | null) => (pct == null ? String(n) : `${n} · ${pct.toFixed(0)}%`);
@@ -163,17 +169,13 @@ function PlayerSection({ stats, photo, color, winner, count, doubleOut, delay }:
     { label: "3-dart average", value: stats.average, decimals: 1 },
     { label: "First 9 average", value: stats.first9_average, decimals: 1 },
     doubleOut
-      ? { label: "Checkout", value: stats.checkout_pct, decimals: compact ? 0 : 1, suffix: "%" }
+      ? { label: "Checkout", value: stats.checkout_pct, decimals: narrowKpis ? 0 : 1, suffix: "%" }
       : { label: "Points", value: stats.points },
     { label: "Best turn", value: stats.highest_turn },
   ];
   const details: [string, string][] = [
     ["Darts thrown", String(stats.darts_thrown)],
     ["Legs won", String(stats.legs_won)],
-    ["180s", String(stats.scores_180)],
-    ["140+", String(stats.scores_140)],
-    ["100+", String(stats.scores_100)],
-    ["60+", String(stats.scores_60)],
     ["High checkout", stats.highest_checkout == null ? dash : String(stats.highest_checkout)],
     ["Best leg", stats.best_leg_darts == null ? dash : `${stats.best_leg_darts} darts`],
     ["Busts", String(stats.busts)],
@@ -211,7 +213,7 @@ function PlayerSection({ stats, photo, color, winner, count, doubleOut, delay }:
           transition={appear(0.45 + j * 0.06)}
         >
           <span className={`truncate font-bold uppercase text-slate-400 ${compact ? "text-[0.62rem] tracking-[0.1em]" : "text-[0.72rem] tracking-[0.14em]"}`}>
-            {label(k.label)}
+            {kpiLabel(k.label)}
           </span>
           {k.value == null ? (
             <span className={`mt-[0.2rem] font-display font-bold leading-none text-slate-500 ${compact ? "text-[1.6rem]" : KPI_VALUE[count]}`}>—</span>
@@ -229,12 +231,18 @@ function PlayerSection({ stats, photo, color, winner, count, doubleOut, delay }:
     </div>
   );
 
+  const chart = (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={appear(0.6)}>
+      <ScoreChart bands={stats.score_bands} color={color} scaleMax={scaleMax} compact={compact} delay={delay + 0.7} />
+    </motion.div>
+  );
+
   const detailGrid = compact ? (
     <div className={`grid min-h-0 flex-1 content-start gap-x-[1rem] ${count >= 5 ? "grid-cols-2" : "grid-cols-3"}`}>
       {details.map(([name, value], j) => (
         <motion.div
           key={name}
-          className="flex min-w-0 items-baseline justify-between gap-[0.5rem] border-b border-white/[0.06] py-[0.12rem]"
+          className="flex min-w-0 items-baseline justify-between gap-[0.5rem] border-b border-white/[0.06] py-[0.08rem]"
           initial={{ opacity: 0, x: 10 }}
           animate={{ opacity: 1, x: 0 }}
           transition={appear(0.7 + j * 0.02)}
@@ -295,6 +303,7 @@ function PlayerSection({ stats, photo, color, winner, count, doubleOut, delay }:
           {board}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-[0.5rem]">
             {kpiGrid}
+            {chart}
             {detailGrid}
           </div>
         </div>
@@ -304,6 +313,7 @@ function PlayerSection({ stats, photo, color, winner, count, doubleOut, delay }:
             {board}
             {kpiGrid}
           </div>
+          <div className="mt-[0.8rem]">{chart}</div>
           <div className="mt-[0.8rem] flex min-h-0 flex-1">{detailGrid}</div>
         </>
       )}
@@ -358,6 +368,86 @@ function ScatterBoard({ stats, color, delay }: { stats: PlayerStats; color: stri
         </motion.g>
       )}
     </svg>
+  );
+}
+
+// Score bands are ordered, so their columns step in lightness within the player's hue (low bands
+// darker, high bands lighter). One ramp per player colour, each checked as an ordinal ramp against
+// the card surface (#10152a): monotone lightness, visible steps, darkest step >= 2:1 contrast.
+const BAND_RAMPS: Record<string, string[]> = {
+  "#3b82f6": ["#3067c3", "#3879e6", "#4d8df7", "#6ea3f8", "#8fb8fa", "#b1cdfb"],
+  "#ef4444": ["#802d37", "#ac363c", "#d93f41", "#f15757", "#f47c7c", "#f7a2a2"],
+  "#22c55e": ["#186441", "#1c8e4e", "#21b95a", "#48cf79", "#7ddda0", "#b2ebc7"],
+  "#f59e0b": ["#6c4c1e", "#875c1a", "#a36d16", "#be7d12", "#da8e0f", "#f59e0b"],
+  "#a855f7": ["#8245c4", "#9d51e9", "#b268f8", "#c186f9", "#d1a5fb", "#e1c4fc"],
+  "#ec4899": ["#893167", "#b53b7d", "#e14593", "#ef63a8", "#f388bd", "#f6add1"],
+};
+
+function bandColor(color: string, band: number): string {
+  const ramp = BAND_RAMPS[color.toLowerCase()];
+  return ramp ? ramp[Math.min(band, ramp.length - 1)] : color;
+}
+
+/** Share of the player's scoring turns in each score band (columns on a scale shared by all players). */
+function ScoreChart({ bands, color, scaleMax, compact, delay }: { bands: ScoreBand[]; color: string; scaleMax: number; compact: boolean; delay: number }) {
+  const [active, setActive] = useState<number | null>(null);
+  const total = bands.reduce((n, b) => n + b.turns, 0);
+  const last = bands.length - 1;
+  return (
+    <div className="min-w-0">
+      <div className="flex items-baseline justify-between gap-[0.5rem]">
+        <span className={`font-bold uppercase text-slate-400 ${compact ? "text-[0.62rem] tracking-[0.1em]" : "text-[0.72rem] tracking-[0.14em]"}`}>Turn scores</span>
+        <span className={`truncate font-semibold text-slate-500 ${compact ? "text-[0.66rem]" : "text-[0.74rem]"}`}>
+          % of {total} scoring {total === 1 ? "turn" : "turns"}
+        </span>
+      </div>
+      <div className={`relative flex border-b border-white/20 ${compact ? "mt-[0.1rem] h-[4rem] pt-[0.95rem]" : "mt-[0.2rem] h-[6.5rem] pt-[1.25rem]"}`}>
+        {bands.map((b, k) => {
+          const range = b.low === b.high ? String(b.low) : k === 0 ? `under ${b.high + 1}` : `${b.low}–${b.high}`;
+          const align = k === 0 ? "left-0" : k === last ? "right-0" : "left-1/2 -translate-x-1/2";
+          return (
+            <div
+              key={b.band}
+              tabIndex={0}
+              aria-label={`${b.band}: ${Math.round(b.pct)}% of scoring turns (${b.turns} of ${total})`}
+              className="relative flex h-full min-w-0 flex-1 cursor-default flex-col items-center justify-end outline-none"
+              onPointerEnter={() => setActive(k)}
+              onPointerLeave={() => setActive(null)}
+              onFocus={() => setActive(k)}
+              onBlur={() => setActive(null)}
+            >
+              {b.turns > 0 && (
+                <span className={`mb-[0.2rem] font-display font-bold leading-none tabular-nums text-slate-100 ${compact ? "text-[0.72rem]" : "text-[0.9rem]"}`}>
+                  {Math.round(b.pct)}%
+                </span>
+              )}
+              <motion.div
+                className="w-[min(1.5rem,60%)] shrink-0 origin-bottom rounded-t-[0.25rem]"
+                style={{ height: `${(b.pct / scaleMax) * 100}%`, background: bandColor(color, k), filter: active === k ? "brightness(1.3)" : undefined }}
+                initial={{ scaleY: 0 }}
+                animate={{ scaleY: 1 }}
+                transition={{ delay: delay + k * 0.06, duration: 0.7, ease: EASE_OUT }}
+              />
+              {active === k && (
+                <div className={`pointer-events-none absolute bottom-[calc(100%+0.3rem)] z-10 whitespace-nowrap rounded-[0.6rem] border border-white/15 bg-[#0b1122] px-[0.7rem] py-[0.4rem] shadow-xl ${align}`}>
+                  <div className="font-display text-[1.05rem] font-bold leading-tight text-white">{b.pct.toFixed(1)}%</div>
+                  <div className="text-[0.75rem] font-semibold text-slate-400">
+                    {b.turns} of {total} turns scored {range}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-[0.2rem] flex">
+        {bands.map((b) => (
+          <span key={b.band} className={`min-w-0 flex-1 text-center font-semibold text-slate-400 ${compact ? "text-[0.64rem]" : "text-[0.74rem]"}`}>
+            {b.band}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

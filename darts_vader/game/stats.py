@@ -32,6 +32,17 @@ class TurnRecord:
     darts: list[DartRecord] = field(default_factory=list)
 
 
+# turn score bands (inclusive ranges) for the score distribution chart
+SCORE_BANDS = (("<40", 0, 39), ("40+", 40, 59), ("60+", 60, 99), ("100+", 100, 139), ("140+", 140, 179), ("180", 180, 180))
+
+
+def score_distribution(points: list[int]) -> list[dict]:
+    """Share of turns in each score band (bust turns excluded: they carry no score)."""
+    return [dict(band=band, low=low, high=high, turns=(n := sum(low <= p <= high for p in points)),
+                 pct=_percent(n, len(points)) or 0.0)
+            for band, low, high in SCORE_BANDS]
+
+
 def _three_dart_average(points: int, darts: int) -> float:
     return round(3 * points / darts, 2) if darts else 0.0
 
@@ -80,6 +91,7 @@ def player_stats(index: int, name: str, turns: list[TurnRecord], legs_won: int, 
         scores_100=sum(100 <= p < 140 for p in points),
         scores_60=sum(60 <= p < 100 for p in points),
         busts=sum(t.outcome == BUST for t in own),
+        score_bands=score_distribution([t.points for t in own if t.outcome != BUST]),
         highest_checkout=max((t.start for t in wins), default=None),
         best_leg_darts=min((sum(t.darts_counted for t in by_leg[w.leg]) for w in wins), default=None),
         darts_at_double=at_double if double_out else None,

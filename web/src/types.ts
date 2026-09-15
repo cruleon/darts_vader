@@ -32,6 +32,14 @@ export interface HistoryItem {
   outcome: "ok" | "bust" | "win";
 }
 
+export interface ScoreBand {
+  band: string;
+  low: number;
+  high: number;
+  turns: number;
+  pct: number;
+}
+
 export interface PlayerStats {
   index: number;
   name: string;
@@ -47,6 +55,7 @@ export interface PlayerStats {
   scores_100: number;
   scores_60: number;
   busts: number;
+  score_bands: ScoreBand[];
   highest_checkout: number | null;
   best_leg_darts: number | null;
   darts_at_double: number | null;

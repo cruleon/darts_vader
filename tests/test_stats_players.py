@@ -47,6 +47,13 @@ def test_player_statistics():
     assert marco["highest_checkout"] is None and marco["checkout_pct"] is None
 
 
+def test_score_distribution_excludes_busts():
+    leo, marco = sample_match()["players"]
+    assert [(b["band"], b["turns"], b["pct"]) for b in leo["score_bands"]] == [
+        ("<40", 1, 50.0), ("40+", 0, 0.0), ("60+", 1, 50.0), ("100+", 0, 0.0), ("140+", 0, 0.0), ("180", 0, 0.0)]
+    assert sum(b["turns"] for b in marco["score_bands"]) == 1  # the bust is not a scoring turn
+
+
 def test_straight_out_has_no_checkout_percentage():
     turns = [TurnRecord(0, 1, 40, 40, WIN, 1, [dart("D20", 40, 20, 2, at_double=True)])]
     stats = match_summary(["Solo"], turns, [1], 40, False, 1, 0)["players"][0]

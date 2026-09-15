@@ -21,6 +21,7 @@ frames/
 risultati*/
 screenshots/
 webcam_calibration.json
+board_numbers.npy
 player_photos/
 *.pt
 *.pth
