@@ -210,6 +210,9 @@ def main() -> None:
     camera.add_argument("--hold", type=float, default=6.0, help="seconds per image when the source is images")
     model = ap.add_argument_group("model and data")
     model.add_argument("--model", default="models/tipnet.pt", help="TipNet checkpoint (see tools/train_tipnet.py)")
+    model.add_argument("--tip-backend", choices=("torch", "onnx"), default="torch",
+                       help="inference backend for the tip model; onnx needs no torch/CUDA install "
+                            "(pass an .onnx checkpoint, see lite/export_onnx.py)")
     model.add_argument("--threshold", type=float, default=0.4, help="minimum tip confidence")
     model.add_argument("--labels", default="webcam_labels", help="where confirmed turns are saved as training data")
     model.add_argument("--photos", default="player_photos", help="where player photos are stored")
@@ -226,13 +229,22 @@ def main() -> None:
         raise SystemExit(f"Model weights not found: {model_path}\n"
                          "Train a model with tools/train_tipnet.py or pass --model (see README).")
 
-    import torch
+    if args.tip_backend == "onnx":
+        if model_path.suffix != ".onnx":
+            raise SystemExit(f"--tip-backend onnx needs an .onnx checkpoint, not {model_path.name}\n"
+                             "Pass --model path/to/tipnet.onnx (see lite/export_onnx.py to create one).")
+        from ..tips.model_onnx import load_tipnet_onnx
 
-    from ..tips.model import load_tipnet
+        device = "cpu"
+        tip_model, view = load_tipnet_onnx(model_path)
+    else:
+        import torch
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    tip_model, view = load_tipnet(model_path, device)
-    print(f"model {model_path.name} ({view} view, {device})")
+        from ..tips.model import load_tipnet
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        tip_model, view = load_tipnet(model_path, device)
+    print(f"model {model_path.name} ({view} view, {device}, {args.tip_backend} backend)")
     players = [p.strip() for p in args.players.split(",") if p.strip()]
     engine = GameEngine(tip_model, view, device, players, args.start, args.double_out, resolve(args.labels),
                         args.threshold, save_calibration=not args.debug, debug=args.debug, legs_to_win=args.legs,

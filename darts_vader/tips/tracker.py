@@ -25,7 +25,6 @@ import numpy as np
 
 from ..board import geometry as g
 from ..board.detector import BoardState
-from .model import predict_tips
 
 # Dart origins
 MODEL, CORRECTED, CLICK, APPROX = "model", "corrected", "click", "approx"
@@ -158,7 +157,11 @@ class LiveScorer:
             return []
 
         self._rings = board.rings
-        tips = predict_tips(self.model, frame, board, self.view, cfg.tip_threshold, max_tips=8, device=self.device)
+        if hasattr(self.model, "predict_tips"):  # a backend that predicts on its own (e.g. TipNetOnnx)
+            tips = self.model.predict_tips(frame, board, self.view, cfg.tip_threshold, max_tips=8)
+        else:  # plain torch TipNet: needs the free predict_tips function and a device
+            from .model import predict_tips
+            tips = predict_tips(self.model, frame, board, self.view, cfg.tip_threshold, max_tips=8, device=self.device)
         if len(tips):
             keep = np.hypot(tips[:, 0], tips[:, 1]) <= cfg.max_radius_mm
             for z in self.ignored:

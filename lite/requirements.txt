@@ -1,0 +1,4 @@
+# Runtime deps for infer_onnx.py: no torch, no CUDA.
+numpy>=1.24
+opencv-python>=4.8
+onnxruntime>=1.20

@@ -20,6 +20,12 @@ app = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
 ]
+# torch-free alternative to `app`: use with --tip-backend onnx (see lite/export_onnx.py)
+app-onnx = [
+    "onnxruntime>=1.20",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
 train = [
     "torch>=2.1",
     "torchvision>=0.16",

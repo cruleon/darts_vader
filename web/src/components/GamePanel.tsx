@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
 import { playerColor } from "../lib/players";
 import { colorVar, DART_COLORS } from "../lib/theme";
 import type { EngineState, Send } from "../types";
@@ -6,14 +7,61 @@ import { MiniBoard } from "./MiniBoard";
 import { Avatar } from "./PlayerPhoto";
 import { AnimatedNumber } from "./ui";
 
+/** How long the board stays zoomed in after a missed double, in ms. */
+const MISS_FLASH_MS = 1300;
+
 export function GamePanel({ state, send }: { state: EngineState; send: Send }) {
+  const [missFlash, setMissFlash] = useState(false);
+  const prevTurnLen = useRef(state.turn.length);
+  const missTimer = useRef<number>(undefined);
+
+  useEffect(() => {
+    if (state.turn.length > prevTurnLen.current) {
+      const d = state.turn[state.turn.length - 1];
+      if (d.finish && d.label !== d.finish.target) {
+        setMissFlash(true);
+        window.clearTimeout(missTimer.current);
+        missTimer.current = window.setTimeout(() => setMissFlash(false), MISS_FLASH_MS);
+      }
+    }
+    prevTurnLen.current = state.turn.length;
+  }, [state.turn]);
+
+  useEffect(() => () => window.clearTimeout(missTimer.current), []);
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-[0.95rem]">
-      <Players state={state} />
-      <TurnCard state={state} />
-      <div className="glass flex min-h-0 flex-1 items-center justify-center p-[0.9rem]">
-        <MiniBoard state={state} send={send} />
+      <motion.div
+        className="flex flex-col gap-[0.95rem]"
+        style={{ transformOrigin: "top" }}
+        animate={{ scale: missFlash ? 0.86 : 1, marginBottom: missFlash ? "-2.6rem" : "0rem" }}
+        transition={{ type: "spring", stiffness: 260, damping: 26 }}
+      >
+        <Players state={state} />
+        <TurnCard state={state} />
+      </motion.div>
+      <div className="glass relative flex min-h-0 flex-1 items-center justify-center overflow-visible p-[0.9rem]">
+        <motion.div
+          className="flex h-full w-full items-center justify-center"
+          animate={{ scale: missFlash ? 1.16 : 1 }}
+          transition={{ type: "spring", stiffness: 220, damping: 20 }}
+        >
+          <MiniBoard state={state} send={send} />
+        </motion.div>
         <FinishLegend state={state} />
+        <AnimatePresence>
+          {missFlash && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.6, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={{ type: "spring", stiffness: 380, damping: 20 }}
+              className="pointer-events-none absolute right-[1.2rem] top-[1.1rem] rounded-full border border-rose-400/60 bg-rose-500/15 px-[0.9rem] py-[0.3rem] text-[0.95rem] font-bold tracking-widest text-rose-300"
+            >
+              MISSED
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
