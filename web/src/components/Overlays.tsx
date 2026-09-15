@@ -3,8 +3,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { AudioSnapshot } from "../lib/audio";
 import { toggleFullscreen } from "../lib/hooks";
+import { fetchPlayerPhoto, playerColor } from "../lib/players";
 import { MODE_STYLE, TONE_COLORS } from "../lib/theme";
-import type { EffectKind, EngineState, Mode, Tone } from "../types";
+import type { EffectKind, EngineState, GameSettings, Mode, Tone } from "../types";
+import { PhotoPicker } from "./PlayerPhoto";
 import { DartGlyph, Kbd, Logo } from "./ui";
 
 /* ------------------------------------------------------------------ top bar */
@@ -29,7 +31,8 @@ export function TopBar({ state, audio, onNewGame, onToggleSound }: TopBarProps) 
             DARTS <span className="text-gradient">VADER</span>
           </h1>
           <p className="mt-[0.25rem] text-[0.95rem] font-medium text-slate-400">
-            {game.start} · {game.double_out ? "double out" : "straight out"} · {n} {n === 1 ? "player" : "players"}
+            {game.start} · {game.double_out ? "double out" : "straight out"}
+            {game.legs_to_win > 1 ? ` · first to ${game.legs_to_win} legs` : ""} · {n} {n === 1 ? "player" : "players"}
           </p>
         </div>
       </div>
@@ -127,6 +130,7 @@ const HINTS: Record<Mode, [string, string][]> = {
     ["U", "undo"],
     ["ESC", "back to game"],
   ],
+  finished: [["ENTER", "rematch"], ["G", "new game"], ["M", "sound"], ["F", "fullscreen"]],
 };
 
 export function HintBar({ mode }: { mode: Mode }) {
@@ -180,6 +184,8 @@ export interface EffectItem {
   id: number;
   effect: EffectKind;
   text: string;
+  /** The winning leg of the match: the title morphs into the statistics screen when the effect ends. */
+  final?: boolean;
 }
 
 const EFFECT_MS: Record<EffectKind, number> = { bust: 1800, ton: 1900, "180": 3000, win: 3800 };
@@ -219,7 +225,7 @@ export function EffectLayer({ effect, onDone }: { effect: EffectItem | null; onD
           className="pointer-events-none fixed inset-0 z-50 grid place-items-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0, transition: { duration: 0.5 } }}
+          exit={{ opacity: 0, transition: { duration: effect.final ? 0.9 : 0.5 } }}
         >
           <div
             className="absolute inset-0"
@@ -278,8 +284,10 @@ function EffectContent({ effect }: { effect: EffectItem }) {
       );
     case "win":
       return (
-        <motion.div className="relative text-center" {...pop}>
-          <div className="fx-text fx-gold text-[15rem]">GAME SHOT</div>
+        <motion.div className="relative flex flex-col items-center text-center" {...pop}>
+          <motion.div layoutId={effect.final ? "match-title" : undefined} className="fx-text fx-gold text-[15rem]" transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}>
+            GAME SHOT
+          </motion.div>
           <Subtitle delay={0.3} className="mt-[0.8rem] text-[3.6rem] tracking-[0.14em]">
             The Force is strong with {effect.text}
           </Subtitle>
@@ -325,6 +333,8 @@ function ToggleRow({ on, title, subtitle, onClick, className = "" }: { on: boole
   );
 }
 
+const photoKey = (name: string) => name.trim().toLowerCase();
+
 export function SetupDialog({
   open,
   state,
@@ -337,25 +347,44 @@ export function SetupDialog({
   state: EngineState;
   audio: AudioSnapshot;
   onToggleSound: () => void;
-  onStart: (settings: { players: string[]; start: number; double_out: boolean }) => void;
+  onStart: (settings: GameSettings) => void;
   onClose: () => void;
 }) {
   const [players, setPlayers] = useState<string[]>([]);
   const [start, setStart] = useState(301);
   const [doubleOut, setDoubleOut] = useState(false);
+  const [legsToWin, setLegsToWin] = useState(1);
+  const [photos, setPhotos] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     if (!open) return;
     setPlayers(state.game.players.map((p) => p.name));
     setStart(state.game.start);
     setDoubleOut(state.game.double_out);
+    setLegsToWin(state.game.legs_to_win);
+    setPhotos(Object.fromEntries(state.game.players.map((p) => [photoKey(p.name), p.photo])));
     // values are copied only when the dialog opens
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // look up the stored photo of names typed in the dialog
+  useEffect(() => {
+    if (!open) return;
+    const missing = players.map((p) => p.trim()).filter((name) => name && !(photoKey(name) in photos));
+    if (missing.length === 0) return;
+    const timer = window.setTimeout(() => {
+      for (const name of missing) {
+        fetchPlayerPhoto(name)
+          .then((url) => setPhotos((current) => ({ ...current, [photoKey(name)]: url })))
+          .catch(() => undefined);
+      }
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [open, players, photos]);
+
   const names = players.map((p) => p.trim()).filter(Boolean);
   const submit = () => {
-    if (names.length) onStart({ players: names, start, double_out: doubleOut });
+    if (names.length) onStart({ players: names, start, double_out: doubleOut, legs_to_win: legsToWin });
   };
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter") {
@@ -378,7 +407,7 @@ export function SetupDialog({
           onKeyDown={onKeyDown}
         >
           <motion.div
-            className="glass w-[42rem] px-[2.4rem] pb-[2.2rem] pt-[2rem]"
+            className="glass max-h-[94vh] w-[48rem] overflow-y-auto px-[2.4rem] pb-[2.2rem] pt-[2rem]"
             initial={{ scale: 0.92, y: 24, opacity: 0 }}
             animate={{ scale: 1, y: 0, opacity: 1 }}
             exit={{ scale: 0.95, y: 12, opacity: 0 }}
@@ -396,7 +425,13 @@ export function SetupDialog({
             <div className="mt-[0.7rem] flex flex-col gap-[0.6rem]">
               {players.map((name, i) => (
                 <div key={i} className="flex items-center gap-[0.6rem]">
-                  <span className="w-[1.8rem] text-center font-display text-[1.6rem] font-bold text-slate-500">{i + 1}</span>
+                  <span className="w-[1.4rem] text-center font-display text-[1.6rem] font-bold text-slate-500">{i + 1}</span>
+                  <PhotoPicker
+                    name={name}
+                    photo={photos[photoKey(name)] ?? null}
+                    color={playerColor(i, players.length)}
+                    onChange={(url) => setPhotos((current) => ({ ...current, [photoKey(name)]: url }))}
+                  />
                   <input
                     className="field"
                     value={name}
@@ -438,6 +473,21 @@ export function SetupDialog({
                   onClick={() => setStart(v)}
                 >
                   {v}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-[1.4rem] label">Match</div>
+            <div className="mt-[0.7rem] grid grid-cols-4 gap-[0.6rem]">
+              {[1, 2, 3, 5].map((v) => (
+                <button
+                  type="button"
+                  key={v}
+                  className={`btn !h-[3rem] !text-[1.05rem] ${v === legsToWin ? "btn-secondary" : "btn-ghost"}`}
+                  style={v === legsToWin ? { boxShadow: "0 0 1.6rem -0.4rem rgb(34 211 238 / 0.7)" } : undefined}
+                  onClick={() => setLegsToWin(v)}
+                >
+                  {v === 1 ? "Single leg" : `First to ${v}`}
                 </button>
               ))}
             </div>

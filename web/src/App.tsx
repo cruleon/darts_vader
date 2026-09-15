@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CameraView } from "./components/CameraView";
 import { GamePanel } from "./components/GamePanel";
@@ -14,10 +14,11 @@ import {
   type ToastItem,
 } from "./components/Overlays";
 import { ReviewPanel } from "./components/ReviewPanel";
+import { StatsScreen } from "./components/StatsScreen";
 import { Background } from "./components/ui";
 import { sound, type Sfx } from "./lib/audio";
 import { toggleFullscreen, useEngine } from "./lib/hooks";
-import type { EngineEvent, EngineState, Vec2 } from "./types";
+import type { EngineEvent, EngineState, GameSettings, Vec2 } from "./types";
 
 const TOAST_MS = 3800;
 
@@ -66,8 +67,10 @@ export default function App() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [effect, setEffect] = useState<EffectItem | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
   const [lens, setLens] = useState<Vec2 | null>(null);
   const lastEventId = useRef<number | null>(null);
+  const effectRef = useRef<EffectItem | null>(null);
   const setupShown = useRef(false);
   const stateRef = useRef<EngineState | null>(null);
   const audio = useSyncExternalStore(sound.subscribe, sound.getSnapshot);
@@ -78,23 +81,43 @@ export default function App() {
     lastEventId.current = null;
   }, [generation]);
 
-  const handleEvent = useCallback((ev: EngineEvent) => {
-    playEvent(ev);
-    if (ev.kind === "toast") {
-      setToasts((ts) => [...ts.slice(-3), { id: ev.id, text: ev.text, tone: ev.tone }]);
-      window.setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== ev.id)), TOAST_MS);
-    } else if (ev.kind === "effect") {
-      setEffect({ id: ev.id, effect: ev.effect, text: ev.text });
-    } else if (ev.kind === "review") {
-      setLens(null);
-    }
+  const showEffect = useCallback((item: EffectItem | null) => {
+    effectRef.current = item;
+    setEffect(item);
   }, []);
+
+  const handleEvent = useCallback(
+    (ev: EngineEvent) => {
+      playEvent(ev);
+      if (ev.kind === "toast") {
+        setToasts((ts) => [...ts.slice(-3), { id: ev.id, text: ev.text, tone: ev.tone }]);
+        window.setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== ev.id)), TOAST_MS);
+      } else if (ev.kind === "effect") {
+        showEffect({ id: ev.id, effect: ev.effect, text: ev.text });
+      } else if (ev.kind === "game_over") {
+        const current = effectRef.current;
+        // the statistics take over when the winning animation ends
+        if (current?.effect === "win") showEffect({ ...current, final: true });
+        else setStatsOpen(true);
+      } else if (ev.kind === "review") {
+        setLens(null);
+      }
+    },
+    [showEffect],
+  );
+
+  const onEffectDone = useCallback(() => {
+    const final = effectRef.current?.final;
+    showEffect(null);
+    if (final) setStatsOpen(true);
+  }, [showEffect]);
 
   useEffect(() => {
     if (!state) return;
     const events = state.events;
     if (lastEventId.current === null) {
       lastEventId.current = events.length ? events[events.length - 1].id : 0;
+      if (state.mode === "finished" && state.summary) setStatsOpen(true);
       if (!setupShown.current) {
         setupShown.current = true;
         if (state.game.history.length === 0) setSetupOpen(true);
@@ -108,9 +131,11 @@ export default function App() {
     }
   }, [state, handleEvent]);
 
+  const mode = state?.mode;
   useEffect(() => {
-    if (state?.mode !== "review") setLens(null);
-  }, [state?.mode]);
+    if (mode !== "review") setLens(null);
+    if (mode && mode !== "finished") setStatsOpen(false);
+  }, [mode]);
 
   // browsers only allow audio after a user gesture
   useEffect(() => {
@@ -123,34 +148,54 @@ export default function App() {
     };
   }, []);
 
+  const startGame = useCallback(
+    (settings: GameSettings) => {
+      send({ type: "new_game", ...settings });
+    },
+    [send],
+  );
+
+  const rematch = useCallback(() => {
+    const st = stateRef.current;
+    if (!st) return;
+    startGame({
+      players: st.game.players.map((p) => p.name),
+      start: st.game.start,
+      double_out: st.game.double_out,
+      legs_to_win: st.game.legs_to_win,
+    });
+  }, [startGame]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const st = stateRef.current;
       // keys already handled by a dialog (e.g. Enter that starts a new game) must not act on the game too
       if (!st || setupOpen || e.defaultPrevented || (e.target as HTMLElement | null)?.tagName === "INPUT") return;
       const key = e.key.toLowerCase();
-      const mode = st.mode;
+      const current = st.mode;
       if (key === "f") toggleFullscreen();
       else if (key === "g") setSetupOpen(true);
       else if (key === "m") sound.toggleSound();
       else if (key === "enter") {
-        if (mode === "calibrating") send({ type: "confirm_orientation" });
-        else if (mode === "review") send({ type: "confirm", save: true });
-      } else if (key === "k" && mode === "review") send({ type: "confirm", save: false });
+        if (current === "calibrating") send({ type: "confirm_orientation" });
+        else if (current === "review") send({ type: "confirm", save: true });
+        else if (current === "finished") rematch();
+      } else if (current === "finished") return;
+      else if (key === "k" && current === "review") send({ type: "confirm", save: false });
       else if (key === "u") send({ type: "undo" });
       else if (key === " ") {
         e.preventDefault();
-        if (mode === "playing") send({ type: "start_review" });
+        if (current === "playing") send({ type: "start_review" });
       } else if (key === "escape") {
         if (lens) setLens(null);
-        else if (mode === "review") send({ type: "resume" });
+        else if (current === "review") send({ type: "resume" });
       } else if (key === "r") send({ type: "recalibrate" });
       else if (key === "d") send({ type: "toggle_detections" });
       else if (key === "c") send({ type: "clear_ignored" });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [send, setupOpen, lens]);
+  }, [send, setupOpen, lens, rematch]);
 
   if (!state) {
     return (
@@ -194,7 +239,14 @@ export default function App() {
       </div>
 
       <Toasts items={toasts} />
-      <EffectLayer effect={effect} onDone={() => setEffect(null)} />
+      <LayoutGroup>
+        <EffectLayer effect={effect} onDone={onEffectDone} />
+        <AnimatePresence>
+          {statsOpen && state.summary && (
+            <StatsScreen key="stats" state={state} onRematch={rematch} onNewGame={() => setSetupOpen(true)} />
+          )}
+        </AnimatePresence>
+      </LayoutGroup>
       <SetupDialog
         open={setupOpen}
         state={state}
@@ -202,7 +254,7 @@ export default function App() {
         onToggleSound={() => sound.toggleSound()}
         onClose={() => setSetupOpen(false)}
         onStart={(settings) => {
-          send({ type: "new_game", ...settings });
+          startGame(settings);
           setSetupOpen(false);
         }}
       />

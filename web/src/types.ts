@@ -1,4 +1,4 @@
-export type Mode = "searching" | "calibrating" | "playing" | "review";
+export type Mode = "searching" | "calibrating" | "playing" | "review" | "finished";
 export type Tone = "info" | "success" | "warning" | "danger" | "violet" | "gold";
 export type Mat3 = number[][];
 export type Vec2 = [number, number];
@@ -22,6 +22,7 @@ export interface Player {
   score: number;
   legs: number;
   average: number;
+  photo: string | null;
 }
 
 export interface HistoryItem {
@@ -29,6 +30,51 @@ export interface HistoryItem {
   darts: string[];
   points: number;
   outcome: "ok" | "bust" | "win";
+}
+
+export interface PlayerStats {
+  index: number;
+  name: string;
+  legs_won: number;
+  turns: number;
+  darts_thrown: number;
+  points: number;
+  average: number;
+  first9_average: number;
+  highest_turn: number;
+  scores_180: number;
+  scores_140: number;
+  scores_100: number;
+  scores_60: number;
+  busts: number;
+  highest_checkout: number | null;
+  best_leg_darts: number | null;
+  darts_at_double: number | null;
+  checkout_pct: number | null;
+  trebles: number;
+  doubles: number;
+  bulls: number;
+  misses: number;
+  singles: number;
+  treble_pct: number | null;
+  double_pct: number | null;
+  miss_pct: number | null;
+  favourite: string | null;
+  favourite_hits: number;
+  avg_finish_distance_mm: number | null;
+  best_finish_distance_mm: number | null;
+  centroid_mm: Vec2 | null;
+  grouping_mm: number | null;
+  darts: { x: number; y: number; label: string; score: number }[];
+}
+
+export interface MatchSummary {
+  start: number;
+  double_out: boolean;
+  legs_to_win: number;
+  winner: number;
+  legs_played: number;
+  players: PlayerStats[];
 }
 
 export type EngineEvent =
@@ -39,6 +85,7 @@ export type EngineEvent =
   | { id: number; kind: "moved"; index: number; label: string }
   | { id: number; kind: "review"; reason: string }
   | { id: number; kind: "turn"; player: string; darts: string[]; points: number; remaining: number; outcome: string }
+  | { id: number; kind: "game_over"; winner: string }
   | { id: number; kind: "board_found" }
   | { id: number; kind: "set20" }
   | { id: number; kind: "game_start" }
@@ -53,6 +100,7 @@ export interface EngineState {
   game: {
     start: number;
     double_out: boolean;
+    legs_to_win: number;
     current: number;
     players: Player[];
     history: HistoryItem[];
@@ -70,10 +118,19 @@ export interface EngineState {
   detections: Vec2[];
   show_detections: boolean;
   review: { id: number; reason: string; w: number; h: number } | null;
+  /** Match statistics, available once the match is over. */
+  summary: MatchSummary | null;
   fps_ai: number;
   saved: number;
   events: EngineEvent[];
   source_error: string | null;
+}
+
+export interface GameSettings {
+  players: string[];
+  start: number;
+  double_out: boolean;
+  legs_to_win: number;
 }
 
 export type Command =
@@ -90,6 +147,6 @@ export type Command =
   | { type: "clear_ignored" }
   | { type: "toggle_detections" }
   | { type: "recalibrate" }
-  | { type: "new_game"; players: string[]; start: number; double_out: boolean };
+  | ({ type: "new_game" } & GameSettings);
 
 export type Send = (command: Command) => void;

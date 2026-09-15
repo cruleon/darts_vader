@@ -1,7 +1,9 @@
 import { AnimatePresence, motion } from "framer-motion";
+import { playerColor } from "../lib/players";
 import { colorVar, DART_COLORS } from "../lib/theme";
 import type { EngineState, Send } from "../types";
 import { MiniBoard } from "./MiniBoard";
+import { Avatar } from "./PlayerPhoto";
 import { AnimatedNumber } from "./ui";
 
 export function GamePanel({ state, send }: { state: EngineState; send: Send }) {
@@ -17,34 +19,16 @@ export function GamePanel({ state, send }: { state: EngineState; send: Send }) {
   );
 }
 
-/** Double that finishes the leg and how far each dart landed from it (double-out games). */
-function FinishLegend({ state }: { state: EngineState }) {
-  const darts = state.turn.filter((d) => d.finish);
-  if (!state.finish_target && darts.length === 0) return null;
-  return (
-    <div className="pointer-events-none absolute left-[1.2rem] top-[1.1rem] flex flex-col items-start gap-[0.45rem]">
-      {state.finish_target && (
-        <span className="flex items-center gap-[0.6rem]">
-          <span className="label !text-amber-300">Finish on</span>
-          <span className="checkout-pill">{state.finish_target}</span>
-        </span>
-      )}
-      {darts.map((d) => (
-        <span key={d.index} className="text-[1rem] font-semibold tabular-nums" style={{ color: DART_COLORS[d.index % 3] }}>
-          Dart {d.index + 1} · {Math.round(d.finish!.distance_mm)} mm from {d.finish!.target}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 function Players({ state }: { state: EngineState }) {
   const { game } = state;
-  const compact = game.players.length > 3;
+  const count = game.players.length;
+  const compact = count > 3;
+  const legs = game.legs_to_win > 1;
   return (
     <div className="flex flex-col gap-[0.65rem]">
       {game.players.map((p, i) => {
         const active = i === game.current;
+        const color = playerColor(i, count);
         return (
           <motion.div
             layout
@@ -54,13 +38,14 @@ function Players({ state }: { state: EngineState }) {
           >
             {active ? (
               <>
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-[0.6rem] text-[1.05rem] font-bold uppercase tracking-[0.2em] text-cyan-300">
-                    <span className="h-[0.55rem] w-[0.55rem] rounded-full bg-cyan-300 shadow-[0_0_0.8rem_#22d3ee]" />
-                    {p.name}
+                <div className="flex items-center justify-between gap-[1rem]">
+                  <span className="flex min-w-0 items-center gap-[0.8rem] text-[1.05rem] font-bold uppercase tracking-[0.2em] text-cyan-300">
+                    <Avatar name={p.name} photo={p.photo} color={color} className="h-[2.8rem] w-[2.8rem] text-[1.05rem]" />
+                    <span className="truncate">{p.name}</span>
                   </span>
-                  <span className="text-[0.9rem] font-semibold tracking-wide text-slate-400">
-                    LEG {p.legs} · AVG {p.average.toFixed(1)}
+                  <span className="shrink-0 text-[0.9rem] font-semibold tracking-wide text-slate-400">
+                    LEGS {p.legs}
+                    {legs ? `/${game.legs_to_win}` : ""} · AVG {p.average.toFixed(1)}
                   </span>
                 </div>
                 <div className="mt-[0.1rem] flex items-end justify-between">
@@ -87,9 +72,15 @@ function Players({ state }: { state: EngineState }) {
               </>
             ) : (
               <>
-                <span className="text-[1.2rem] font-semibold text-slate-300">{p.name}</span>
+                <span className="flex min-w-0 items-center gap-[0.7rem] text-[1.2rem] font-semibold text-slate-300">
+                  <Avatar name={p.name} photo={p.photo} color={color} className="h-[2.2rem] w-[2.2rem] text-[0.85rem]" />
+                  <span className="truncate">{p.name}</span>
+                </span>
                 <span className="flex items-baseline gap-[1rem]">
-                  <span className="text-[0.85rem] font-medium text-slate-500">LEG {p.legs}</span>
+                  <span className="text-[0.85rem] font-medium text-slate-500">
+                    LEGS {p.legs}
+                    {legs ? `/${game.legs_to_win}` : ""}
+                  </span>
                   <AnimatedNumber value={p.score} className="font-display text-[2.5rem] font-bold leading-none text-slate-100" />
                 </span>
               </>
@@ -203,6 +194,27 @@ function TurnCard({ state }: { state: EngineState }) {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+/** Double that finishes the leg and how far each dart landed from it (double-out games). */
+function FinishLegend({ state }: { state: EngineState }) {
+  const darts = state.turn.filter((d) => d.finish);
+  if (!state.finish_target && darts.length === 0) return null;
+  return (
+    <div className="pointer-events-none absolute left-[1.2rem] top-[1.1rem] flex flex-col items-start gap-[0.45rem]">
+      {state.finish_target && (
+        <span className="flex items-center gap-[0.6rem]">
+          <span className="label !text-amber-300">Finish on</span>
+          <span className="checkout-pill">{state.finish_target}</span>
+        </span>
+      )}
+      {darts.map((d) => (
+        <span key={d.index} className="text-[1rem] font-semibold tabular-nums" style={{ color: DART_COLORS[d.index % 3] }}>
+          Dart {d.index + 1} · {Math.round(d.finish!.distance_mm)} mm from {d.finish!.target}
+        </span>
+      ))}
     </div>
   );
 }

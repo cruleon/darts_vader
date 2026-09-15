@@ -94,7 +94,7 @@ export function CameraView({ state, send, lens, setLens, streamKey }: Props) {
     if (k >= 0) send({ type: "remove", index: k });
   };
 
-  const borderColor = { searching: VIOLET, calibrating: VIOLET, playing: "rgb(148 163 184 / 0.22)", review: AMBER }[mode];
+  const borderColor = { searching: VIOLET, calibrating: VIOLET, playing: "rgb(148 163 184 / 0.22)", review: AMBER, finished: AMBER }[mode];
   const hint = cameraHint(state, lens !== null);
 
   return (

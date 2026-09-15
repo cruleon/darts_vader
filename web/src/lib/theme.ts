@@ -24,6 +24,7 @@ export const MODE_STYLE: Record<Mode, { label: string; color: string }> = {
   calibrating: { label: "Calibration", color: VIOLET },
   playing: { label: "Live", color: EMERALD },
   review: { label: "Review", color: AMBER },
+  finished: { label: "Game over", color: "#ffd166" },
 };
 
 export const ORIGIN_STYLE: Record<string, { label: string; color: string }> = {

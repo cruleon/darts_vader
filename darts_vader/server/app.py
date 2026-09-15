@@ -1,16 +1,19 @@
 """DARTS VADER web server: FastAPI backend for the React frontend.
 
     python -m darts_vader                                         # webcam 0, opens the browser
-    python -m darts_vader --players Leo,Marco --start 501 --double-out
+    python -m darts_vader --players Leo,Marco --start 501 --double-out --legs 3
     python -m darts_vader --kiosk                                 # Microsoft Edge fullscreen, like an app
     python -m darts_vader --source turn.jpg --no-browser          # try it without a webcam
 
 Endpoints:
-  GET  /api/stream.mjpg   live camera video (MJPEG)
-  GET  /api/review.jpg    still photo of the turn under review (full resolution)
-  GET  /api/state         current engine state (JSON)
-  WS   /ws                engine state about 20 times per second; commands from the frontend
-  GET  /                  built frontend (web/dist)
+  GET  /api/stream.mjpg             live camera video (MJPEG)
+  GET  /api/review.jpg              still photo of the turn under review (full resolution)
+  GET  /api/state                   current engine state (JSON)
+  POST /api/player-photo            set or remove a player photo ({"name": ..., "image": data URL or null})
+  GET  /api/player-photo-url        photo URL of a player name (?name=...)
+  GET  /api/player-photo/<file>     stored player photo
+  WS   /ws                          engine state about 20 times per second; commands from the frontend
+  GET  /                            built frontend (web/dist)
 """
 from __future__ import annotations
 
@@ -29,12 +32,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..camera import BACKENDS, FrameSource
-from .engine import PROJECT_ROOT, REVIEW, START_SCORES, GameEngine
+from ..players import PhotoStore
+from .engine import LEGS_TO_WIN, PROJECT_ROOT, REVIEW, START_SCORES, GameEngine
 
 FRONTEND_DIST = PROJECT_ROOT / "web" / "dist"
 PREVIEW_WIDTH = 1920  # the MJPEG preview is downscaled to this width
@@ -113,6 +117,32 @@ def create_app(engine: GameEngine, source: FrameSource) -> FastAPI:
             return Response(status_code=404)
         return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
+    @app.post("/api/player-photo")
+    async def set_player_photo(payload: dict = Body(...)):
+        name = str(payload.get("name", "")).strip()[:18]
+        if not name:
+            return JSONResponse({"error": "missing player name"}, status_code=400)
+        try:
+            if payload.get("image"):
+                await asyncio.to_thread(engine.photos.save, name, payload["image"])
+            else:
+                engine.photos.delete(name)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        return {"url": engine.photos.url(name)}
+
+    @app.get("/api/player-photo-url")
+    async def player_photo_url(name: str = ""):
+        return {"url": engine.photos.url(name.strip()[:18]) if name.strip() else None}
+
+    @app.get("/api/player-photo/{filename}")
+    async def player_photo(filename: str):
+        path = engine.photos.file(filename)
+        if path is None:
+            return Response(status_code=404)
+        # URLs carry the file version, so the photo can be cached for good
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
     @app.websocket("/ws")
     async def websocket(ws: WebSocket):
         await ws.accept()
@@ -172,6 +202,7 @@ def main() -> None:
     game.add_argument("--players", default="Player", help="comma-separated player names")
     game.add_argument("--start", type=int, default=301, choices=START_SCORES)
     game.add_argument("--double-out", action="store_true")
+    game.add_argument("--legs", type=int, default=1, choices=LEGS_TO_WIN, help="legs needed to win the match")
     camera = ap.add_argument_group("camera")
     camera.add_argument("--source", default="0", help="webcam index, stream URL, video file, image, or image folder/glob")
     camera.add_argument("--backend", choices=tuple(BACKENDS), default="msmf", help="OpenCV capture backend for webcams")
@@ -181,6 +212,7 @@ def main() -> None:
     model.add_argument("--model", default="models/tipnet.pt", help="TipNet checkpoint (see tools/train_tipnet.py)")
     model.add_argument("--threshold", type=float, default=0.4, help="minimum tip confidence")
     model.add_argument("--labels", default="webcam_labels", help="where confirmed turns are saved as training data")
+    model.add_argument("--photos", default="player_photos", help="where player photos are stored")
     server = ap.add_argument_group("server")
     server.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 to open the app from a tablet or phone")
     server.add_argument("--port", type=int, default=8765)
@@ -203,7 +235,8 @@ def main() -> None:
     print(f"model {model_path.name} ({view} view, {device})")
     players = [p.strip() for p in args.players.split(",") if p.strip()]
     engine = GameEngine(tip_model, view, device, players, args.start, args.double_out, resolve(args.labels),
-                        args.threshold, save_calibration=not args.debug, debug=args.debug)
+                        args.threshold, save_calibration=not args.debug, debug=args.debug, legs_to_win=args.legs,
+                        photos=PhotoStore(resolve(args.photos)))
     source = FrameSource(args.source, args.backend, args.capture, hold=args.hold)
     app = create_app(engine, source)
 

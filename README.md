@@ -20,6 +20,12 @@ example for the tip model.
   three-dart averages, up to six players.
 - **Double-out practice.** In double-out games the mini board highlights the double that would
   finish the leg and shows how many millimetres each dart landed from it.
+- **Players and matches.** Player photos (uploaded or taken with any camera), matches played as
+  a single leg or first to 2, 3 or 5 legs.
+- **Match statistics.** When the match ends, the winning animation morphs into a statistics
+  screen with one section per player: a scatter plot of every dart with its grouping, averages,
+  first-nine average, checkout rate, tons, busts, hit mix, favourite segment and distance from the
+  finishing doubles.
 - **Turn review.** Darts can be moved, removed or added with a click before the turn is applied,
   with a magnifier for precise tip placement.
 - **Built-in data collection.** Confirmed turns are stored with the board homography and the tip
@@ -112,7 +118,7 @@ create one.
 
 ```bash
 python -m darts_vader                                         # webcam 0, opens the browser
-python -m darts_vader --players Alice,Bob --start 501 --double-out
+python -m darts_vader --players Alice,Bob --start 501 --double-out --legs 3
 python -m darts_vader --kiosk                                 # fullscreen Microsoft Edge window
 python -m darts_vader --host 0.0.0.0                          # control the game from a tablet or phone
 python -m darts_vader --source turn.jpg --no-browser          # try the app without a webcam

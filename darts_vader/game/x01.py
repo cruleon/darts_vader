@@ -16,6 +16,7 @@ class TurnResult:
     points: int  # points actually subtracted from the remaining score
     remaining: int
     outcome: str  # ok, bust, win
+    darts_counted: int = 3  # darts counted for averages: 3, unless the leg was won with fewer
 
 
 @dataclass
@@ -66,18 +67,19 @@ class X01:
                 outcome = WIN
                 break
         labels = [h.label for h in hits[:used]]
-        self.darts_thrown[p] += used if outcome == WIN else max(used, 3)
+        counted = used if outcome == WIN else max(used, 3)
+        self.darts_thrown[p] += counted
         if outcome == BUST:
-            result = TurnResult(self.player, labels, 0, start, outcome)
+            result = TurnResult(self.player, labels, 0, start, outcome, counted)
         elif outcome == WIN:
             self.points_scored[p] += start
             self.legs[p] += 1
-            result = TurnResult(self.player, labels, start, 0, outcome)
+            result = TurnResult(self.player, labels, start, 0, outcome, counted)
             self.scores = [self.start] * len(self.players)
         else:
             self.points_scored[p] += start - rem
             self.scores[p] = rem
-            result = TurnResult(self.player, labels, start - rem, rem, outcome)
+            result = TurnResult(self.player, labels, start - rem, rem, outcome, counted)
         self.history.append(result)
         self.current = (p + 1) % len(self.players)  # after a won leg the winner does not throw first
         return result

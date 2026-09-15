@@ -21,6 +21,7 @@ frames/
 risultati*/
 screenshots/
 webcam_calibration.json
+player_photos/
 *.pt
 *.pth
 *.onnx

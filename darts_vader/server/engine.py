@@ -1,11 +1,12 @@
-"""Game engine of the web app: board lock, live dart detection, x01 rules, turn review and
-training-data collection.
+"""Game engine of the web app: board lock, live dart detection, x01 rules, turn review, match
+statistics and training-data collection.
 
 The frontend reads the engine through :meth:`GameEngine.state` and drives it with
 :meth:`GameEngine.command`. "Image" coordinates are always pixels of the original camera frame
 (of the still photo while a turn is under review).
 
-Modes: ``searching`` -> ``calibrating`` (the player confirms where the 20 is) -> ``playing`` <-> ``review``.
+Modes: ``searching`` -> ``calibrating`` (the player confirms where the 20 is) -> ``playing`` <-> ``review``
+-> ``finished`` (match statistics, until a new game starts).
 """
 from __future__ import annotations
 
@@ -19,19 +20,23 @@ import cv2
 import numpy as np
 
 from ..board import BoardState, DartboardDetector, geometry as g
+from ..game.stats import DartRecord, TurnRecord, match_summary
 from ..game.x01 import BUST, WIN, X01, finishing_double
 from ..labels import LABELLED, NO_TIPS, LabelSession, tip_record
+from ..players import PhotoStore
 from ..tips.tracker import APPROX, CLICK, Dart, LiveConfig, LiveScorer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CALIBRATION_FILE = PROJECT_ROOT / "webcam_calibration.json"
+PHOTOS_DIR = PROJECT_ROOT / "player_photos"
 
-SEARCHING, CALIBRATING, PLAYING, REVIEW = "searching", "calibrating", "playing", "review"
+SEARCHING, CALIBRATING, PLAYING, REVIEW, FINISHED = "searching", "calibrating", "playing", "review", "finished"
 LOCK_FRAMES = 5  # consecutive confident detections needed to lock the board
 LOST_FRAMES = 10  # frames without a board before the player is warned
 REVIEW_DELAY = 1.0  # seconds after the third dart before the automatic review
 MAX_PLAYERS = 6
 START_SCORES = (101, 170, 301, 501, 701, 1001)
+LEGS_TO_WIN = (1, 2, 3, 4, 5)
 EFFECTS = ("180", "bust", "win", "ton")
 
 
@@ -43,9 +48,14 @@ class GameEngine:
     def __init__(self, model, view: str, device: str, players: list[str], start: int = 301,
                  double_out: bool = False, labels_dir: Path = PROJECT_ROOT / "webcam_labels",
                  threshold: float = 0.4, calibration_file: Path | None = CALIBRATION_FILE,
-                 save_calibration: bool = True, debug: bool = False):
+                 save_calibration: bool = True, debug: bool = False, legs_to_win: int = 1,
+                 photos: PhotoStore | None = None):
         self.lock = threading.RLock()
         self.game = X01(players[:MAX_PLAYERS] or ["Player"], start, double_out)
+        self.legs_to_win = legs_to_win if legs_to_win in LEGS_TO_WIN else 1
+        self.match_turns: list[TurnRecord] = []
+        self.summary: dict | None = None
+        self.photos = photos or PhotoStore(PHOTOS_DIR)
         self.scorer = LiveScorer(model, device, view, LiveConfig(tip_threshold=threshold), auto_close=False)
         self.detector = DartboardDetector()
         self.labels = LabelSession(Path(labels_dir) / f"{time.strftime('%Y%m%d_%H%M%S')}_{start}",
@@ -114,7 +124,7 @@ class GameEngine:
     def process_frame(self, frame: np.ndarray, now: float) -> None:
         self.frame_size = (int(frame.shape[1]), int(frame.shape[0]))
         self.latest_frame = frame
-        if self.mode == REVIEW:
+        if self.mode in (REVIEW, FINISHED):
             return
         if self.reset_detector:
             self.detector.reset()
@@ -196,8 +206,12 @@ class GameEngine:
             if self.mode != REVIEW:
                 return
             index = self._save_turn() if save else None
-            before = self.game.remaining
+            player, before, leg = self.game.current, self.game.remaining, sum(self.game.legs) + 1
+            darts = self._dart_records(before, self.review["board"].rings)
             result = self.game.apply_turn([d.hit for d in self.scorer.turn])
+            self.match_turns.append(TurnRecord(player, leg, before, result.points, result.outcome,
+                                               result.darts_counted, darts[:len(result.darts)]))
+            match_won = result.outcome == WIN and self.game.legs[player] >= self.legs_to_win
             self.scorer.wait_for_empty_board()
             self.snapshot, self.review, self.last_dart_time, self.mode = None, None, None, PLAYING
             self._emit("turn", player=result.player, darts=result.darts, points=result.points,
@@ -207,7 +221,11 @@ class GameEngine:
                 self.toast(f"BUST · {result.player} stays on {before}", "danger")
             elif result.outcome == WIN:
                 self._emit("effect", effect="win", text=result.player)
-                self.toast(f"GAME SHOT! {result.player} checks out with {' '.join(result.darts)}", "gold")
+                if match_won:
+                    self.toast(f"GAME SHOT! {result.player} wins the match with {' '.join(result.darts)}", "gold")
+                else:
+                    legs = " - ".join(str(n) for n in self.game.legs)
+                    self.toast(f"Leg to {result.player} ({' '.join(result.darts)}) · legs {legs}", "gold")
             else:
                 if result.points == 180:
                     self._emit("effect", effect="180", text="180")
@@ -216,6 +234,25 @@ class GameEngine:
                 self.toast(f"{result.player}: {result.points} scored · {result.remaining} left", "success")
             if index is not None:
                 self.toast(f"Training sample {index} saved", "info")
+            if match_won:
+                self.summary = match_summary(self.game.players, self.match_turns, list(self.game.legs), self.game.start,
+                                             self.game.double_out, self.legs_to_win, player)
+                self.mode = FINISHED
+                self._emit("game_over", winner=result.player)
+
+    def _dart_records(self, remaining: int, rings) -> list[DartRecord]:
+        """Darts of the current turn for the match statistics, with their finishing-double data."""
+        records = []
+        for d in self.scorer.turn:
+            target = finishing_double(remaining)
+            distance = None
+            if target is not None and self.game.double_out:
+                distance = round(g.nearest_point_in_segment(*d.tip_mm, target, rings)[1], 1)
+            records.append(DartRecord(d.hit.label, int(d.hit.score), int(d.hit.number), int(d.hit.multiplier),
+                                      round(float(d.tip_mm[0]), 1), round(float(d.tip_mm[1]), 1),
+                                      target is not None, distance))
+            remaining -= d.hit.score
+        return records
 
     def _save_turn(self) -> int:
         frame, board = self.review["frame"], self.review["board"]
@@ -308,7 +345,7 @@ class GameEngine:
         self.show_detections = not self.show_detections
 
     def _cmd_recalibrate(self, _msg: dict) -> None:
-        if self.mode != REVIEW:
+        if self.mode in (SEARCHING, CALIBRATING, PLAYING):
             self.mode, self.board, self.candidate, self.lock_count = SEARCHING, None, None, 0
             self.reset_detector = True
             self.toast("Recalibrating: looking for the board", "violet")
@@ -322,12 +359,14 @@ class GameEngine:
     def _cmd_new_game(self, msg: dict) -> None:
         players = [str(p).strip()[:18] for p in msg.get("players", []) if str(p).strip()][:MAX_PLAYERS]
         start = int(msg.get("start", self.game.start))
-        if not players or start not in START_SCORES:
+        legs_to_win = int(msg.get("legs_to_win", self.legs_to_win))
+        if not players or start not in START_SCORES or legs_to_win not in LEGS_TO_WIN:
             self.toast("Invalid game settings", "danger")
             return
         self.game = X01(players, start, bool(msg.get("double_out", False)))
+        self.legs_to_win, self.match_turns, self.summary = legs_to_win, [], None
         self.labels.metadata["game"] = start
-        if self.mode == REVIEW:
+        if self.mode in (REVIEW, FINISHED):
             self.review, self.mode = None, PLAYING
         if self.mode == PLAYING:
             self.scorer.wait_for_empty_board()
@@ -349,7 +388,7 @@ class GameEngine:
     def state(self) -> dict:
         with self.lock:
             mode, game, scorer = self.mode, self.game, self.scorer
-            board = {CALIBRATING: self.candidate, PLAYING: self.board,
+            board = {CALIBRATING: self.candidate, PLAYING: self.board, FINISHED: self.board,
                      REVIEW: self.review["board"] if self.review else None}.get(mode)
             rings = board.rings if board is not None else g.RING_RADII
             turn, remaining_before = [], game.remaining
@@ -365,16 +404,18 @@ class GameEngine:
             bust = remaining < 0 or (game.double_out and remaining == 1)
             checkout = (game.checkout(remaining, 3 - len(turn))
                         if mode == PLAYING and remaining > 0 and len(turn) < 3 else None)
-            finish_target = finishing_double(remaining) if game.double_out and len(turn) < 3 else None
+            finish_target = (finishing_double(remaining)
+                             if game.double_out and mode == PLAYING and len(turn) < 3 else None)
             detections = scorer.detections if self.show_detections and mode == PLAYING else np.zeros((0, 3))
             return dict(
                 mode=mode,
                 frame=dict(w=self.frame_size[0], h=self.frame_size[1]) if self.frame_size else None,
                 board=dict(H_inv=np.asarray(board.H_inv, float).tolist(), rings=[float(r) for r in board.rings])
                 if board is not None else None,
-                game=dict(start=game.start, double_out=game.double_out, current=game.current,
+                game=dict(start=game.start, double_out=game.double_out, legs_to_win=self.legs_to_win,
+                          current=game.current,
                           players=[dict(name=name, score=int(game.scores[i]), legs=int(game.legs[i]),
-                                        average=round(float(game.average(i)), 1))
+                                        average=round(float(game.average(i)), 1), photo=self.photos.url(name))
                                    for i, name in enumerate(game.players)],
                           history=[dict(player=r.player, darts=r.darts, points=r.points, outcome=r.outcome)
                                    for r in game.history[-8:]]),
@@ -392,6 +433,7 @@ class GameEngine:
                 review=dict(id=self.review["id"], reason=self.review["reason"],
                             w=int(self.review["frame"].shape[1]), h=int(self.review["frame"].shape[0]))
                 if self.review else None,
+                summary=self.summary,
                 fps_ai=round(float(self.fps_ai), 1),
                 saved=self.labels.count(LABELLED),
                 events=list(self.events),
