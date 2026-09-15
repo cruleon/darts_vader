@@ -144,6 +144,11 @@ Run `python -m darts_vader --help` for camera, model and server options.
 | --- | --- | --- |
 | ![Confirming the 20](docs/images/app-calibration.jpg) | ![Live game](docs/images/app-live.jpg) | ![180 effect](docs/images/app-180.jpg) |
 
+When the match ends, the statistics screen shows every player's darts on the board, the turn-score
+distribution and the full scorecard:
+
+![End-of-match statistics](docs/images/app-stats.jpg)
+
 ### Controls
 
 | Key | Action |
