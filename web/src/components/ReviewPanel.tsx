@@ -11,6 +11,7 @@ const REASONS: Record<string, string> = {
   three_darts: "three darts thrown",
   darts_pulled: "darts pulled",
   manual: "opened manually",
+  undo: "editing the winning turn",
 };
 
 export function ReviewPanel({ state, send }: { state: EngineState; send: Send }) {

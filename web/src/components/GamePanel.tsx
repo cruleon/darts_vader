@@ -50,24 +50,16 @@ function Players({ state }: { state: EngineState }) {
                 </div>
                 <div className="mt-[0.1rem] flex items-end justify-between">
                   <AnimatedNumber
-                    value={p.score}
-                    className={`font-display font-bold leading-[0.86] tracking-tight text-white ${compact ? "text-[5.6rem]" : "text-[7.4rem]"}`}
+                    value={state.bust ? p.score : state.remaining_after}
+                    className={`font-display font-bold leading-[0.86] tracking-tight ${state.bust ? "text-rose-400" : "text-white"} ${compact ? "text-[5.6rem]" : "text-[7.4rem]"}`}
                   />
-                  <AnimatePresence>
-                    {state.turn.length > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 20 }}
-                        className="pb-[0.55rem] text-right"
-                      >
-                        <div className="label">{state.bust ? "Bust" : "After turn"}</div>
-                        <div className={`font-display text-[3.3rem] font-bold leading-none ${state.bust ? "text-rose-400" : "text-emerald-300"}`}>
-                          {state.bust ? p.score : state.remaining_after}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  <div className="flex flex-col items-end gap-[0.5rem] pb-[0.55rem] text-right">
+                    <div>
+                      <div className="label">Turn start</div>
+                      <div className="font-display text-[3.3rem] font-bold leading-none text-slate-400">{p.score}</div>
+                    </div>
+                    <DartsLeft thrown={state.turn.length} color={color} />
+                  </div>
                 </div>
               </>
             ) : (
@@ -89,6 +81,31 @@ function Players({ state }: { state: EngineState }) {
         );
       })}
     </div>
+  );
+}
+
+/** Three dart icons: lit in the player's colour for each dart still to throw this turn. */
+function DartsLeft({ thrown, color }: { thrown: number; color: string }) {
+  return (
+    <div className="flex gap-[0.35rem]">
+      {[0, 1, 2].map((k) => (
+        <DartIcon key={k} lit={k >= thrown} color={color} />
+      ))}
+    </div>
+  );
+}
+
+function DartIcon({ lit, color }: { lit: boolean; color: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width="1.15rem" height="1.15rem" style={{ opacity: lit ? 1 : 0.28 }}>
+      <g transform="rotate(45 12 12)" fill={lit ? color : "#94a3b8"}>
+        <path d="M11.2 2 L12.8 2 L13.6 13 L10.4 13 Z" />
+        <path d="M12 13 L12 20" stroke={lit ? color : "#94a3b8"} strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M8 22 L12 19.3 L11 22 Z" />
+        <path d="M16 22 L12 19.3 L13 22 Z" />
+        <circle cx="12" cy="3.2" r="1.5" />
+      </g>
+    </svg>
   );
 }
 

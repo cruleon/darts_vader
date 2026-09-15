@@ -18,6 +18,7 @@ interface Props {
 export function CameraView({ state, send, lens, setLens, streamKey }: Props) {
   const [wrapRef, size] = useElementSize<HTMLDivElement>();
   const boxRef = useRef<HTMLDivElement>(null);
+  const [calibHover, setCalibHover] = useState<Vec2 | null>(null);
   const review = state.mode === "review" ? state.review : null;
   const frame = review ? { w: review.w, h: review.h } : state.frame;
 
@@ -86,6 +87,10 @@ export function CameraView({ state, send, lens, setLens, streamKey }: Props) {
     }
   };
 
+  const onMouseMove = (e: MouseEvent) => {
+    if (mode === "calibrating" && frame && boxRef.current) setCalibHover(pointer(e).img);
+  };
+
   const onContextMenu = (e: MouseEvent) => {
     e.preventDefault();
     if (!frame || !boxRef.current || (mode !== "playing" && mode !== "review")) return;
@@ -112,6 +117,8 @@ export function CameraView({ state, send, lens, setLens, streamKey }: Props) {
             }}
             onClick={onClick}
             onContextMenu={onContextMenu}
+            onMouseMove={onMouseMove}
+            onMouseLeave={() => setCalibHover(null)}
           >
             <img
               key={`live-${streamKey}`}
@@ -205,6 +212,10 @@ export function CameraView({ state, send, lens, setLens, streamKey }: Props) {
                 <Lens key={`${lens[0]}-${lens[1]}`} lens={lens} review={review} fit={fit} send={send} close={() => setLens(null)} />
               )}
             </AnimatePresence>
+
+            {mode === "calibrating" && calibHover && fit && frame && (
+              <LiveLens hover={calibHover} frame={frame} fit={fit} streamKey={streamKey} />
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3 text-slate-400">
@@ -262,6 +273,61 @@ function ScanLine() {
       />
       <div className="pointer-events-none absolute inset-0" style={{ boxShadow: "inset 0 0 8rem rgb(5 8 20 / 0.9)" }} />
     </>
+  );
+}
+
+/** Zoomed view of the live stream following the cursor, so the tiny printed numbers can be
+ *  read precisely while setting the 20 (there is no still photo to zoom into, unlike review). */
+function LiveLens({
+  hover,
+  frame,
+  fit,
+  streamKey,
+}: {
+  hover: Vec2;
+  frame: { w: number; h: number };
+  fit: { w: number; h: number; s: number };
+  streamKey: number;
+}) {
+  const size = Math.min(remPx() * 16, fit.w * 0.4, fit.h * 0.5);
+  const zoom = 3.5;
+  const cx = (hover[0] / frame.w) * fit.w;
+  const cy = (hover[1] / frame.h) * fit.h;
+  const margin = remPx() * 0.6;
+  // offset the lens away from the cursor so it never sits under it
+  const left = clamp(cx + size * 0.4, margin, fit.w - size - margin);
+  const top = clamp(cy - size * 1.15, margin, fit.h - size - margin);
+
+  return (
+    <div
+      className="pointer-events-none absolute overflow-hidden rounded-[1.4rem]"
+      style={{
+        left,
+        top,
+        width: size,
+        height: size,
+        boxShadow: `0 0 0 3px ${VIOLET}, 0 0 3rem rgb(168 85 247 / 0.4), 0 2rem 4rem rgb(0 0 0 / 0.8)`,
+      }}
+    >
+      <img
+        key={`live-lens-${streamKey}`}
+        src="/api/stream.mjpg"
+        alt=""
+        draggable={false}
+        className="absolute select-none"
+        style={{
+          width: fit.w * zoom,
+          height: fit.h * zoom,
+          left: -cx * zoom + size / 2,
+          top: -cy * zoom + size / 2,
+          maxWidth: "none",
+        }}
+      />
+      <svg className="pointer-events-none absolute inset-0 h-full w-full">
+        <line x1="50%" y1={0} x2="50%" y2="100%" stroke={VIOLET} strokeWidth={1.5} strokeOpacity={0.9} />
+        <line x1={0} y1="50%" x2="100%" y2="50%" stroke={VIOLET} strokeWidth={1.5} strokeOpacity={0.9} />
+      </svg>
+    </div>
   );
 }
 

@@ -180,9 +180,9 @@ export default function App() {
         if (current === "calibrating") send({ type: "confirm_orientation" });
         else if (current === "review") send({ type: "confirm", save: true });
         else if (current === "finished") rematch();
-      } else if (current === "finished") return;
+      } else if (key === "u") send({ type: "undo" });
+      else if (current === "finished") return;
       else if (key === "k" && current === "review") send({ type: "confirm", save: false });
-      else if (key === "u") send({ type: "undo" });
       else if (key === " ") {
         e.preventDefault();
         if (current === "playing") send({ type: "start_review" });
@@ -243,7 +243,13 @@ export default function App() {
         <EffectLayer effect={effect} onDone={onEffectDone} />
         <AnimatePresence>
           {statsOpen && state.summary && (
-            <StatsScreen key="stats" state={state} onRematch={rematch} onNewGame={() => setSetupOpen(true)} />
+            <StatsScreen
+              key="stats"
+              state={state}
+              onRematch={rematch}
+              onNewGame={() => setSetupOpen(true)}
+              onEditLastTurn={() => send({ type: "undo" })}
+            />
           )}
         </AnimatePresence>
       </LayoutGroup>

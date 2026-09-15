@@ -87,6 +87,7 @@ class GameEngine:
         self.review_id = 0
         self.review_jpeg: bytes | None = None
         self.fps_ai = 0.0
+        self._last_committed: dict | None = None  # snapshot to undo the match-winning turn
 
         self.events: deque = deque(maxlen=40)
         self._event_id = 0
@@ -217,8 +218,27 @@ class GameEngine:
             self.review = dict(frame=snap[0], board=snap[1], reason=reason, id=self.review_id)
             self.review_jpeg = jpg.tobytes() if ok else None
             self.mode = REVIEW
-            self._emit("review", reason=reason)
+            if self._would_win_match():
+                # the finishing dart of the match: skip the confirm step and jump to the victory
+                # screen; the player can still press undo there to come back and fix the turn
+                self.confirm(True)
+            else:
+                self._emit("review", reason=reason)
             return True
+
+    def _would_win_match(self) -> bool:
+        """Whether confirming the current turn as-is would win the match (not just the leg)."""
+        game, remaining = self.game, self.game.remaining
+        for d in self.scorer.turn:
+            hit = d.hit
+            after = remaining - hit.score
+            finishing_double = hit.multiplier == 2
+            if after < 0 or (game.double_out and after == 1) or (after == 0 and game.double_out and not finishing_double):
+                return False
+            remaining = after
+            if remaining == 0:
+                return game.legs[game.current] + 1 >= self.legs_to_win
+        return False
 
     def confirm(self, save: bool) -> None:
         """Apply the reviewed turn to the game, optionally saving it as a training sample."""
@@ -228,6 +248,10 @@ class GameEngine:
             index = self._save_turn() if save else None
             player, before, leg = self.game.current, self.game.remaining, sum(self.game.legs) + 1
             darts = self._dart_records(before, self.review["board"].rings)
+            snapshot = dict(scores=list(self.game.scores), current=self.game.current, legs=list(self.game.legs),
+                            darts_thrown=list(self.game.darts_thrown), points_scored=list(self.game.points_scored),
+                            history_len=len(self.game.history), match_turns_len=len(self.match_turns),
+                            review=dict(self.review), turn_darts=list(self.scorer.turn))
             result = self.game.apply_turn([d.hit for d in self.scorer.turn])
             self.match_turns.append(TurnRecord(player, leg, before, result.points, result.outcome,
                                                result.darts_counted, darts[:len(result.darts)]))
@@ -258,7 +282,22 @@ class GameEngine:
                 self.summary = match_summary(self.game.players, self.match_turns, list(self.game.legs), self.game.start,
                                              self.game.double_out, self.legs_to_win, player)
                 self.mode = FINISHED
+                self._last_committed = snapshot
                 self._emit("game_over", winner=result.player)
+
+    def _undo_last_turn(self) -> None:
+        """From the victory screen, go back to the match-winning turn to fix and re-confirm it."""
+        snap = self._last_committed
+        if snap is None:
+            return
+        self.game.scores, self.game.current, self.game.legs = snap["scores"], snap["current"], snap["legs"]
+        self.game.darts_thrown, self.game.points_scored = snap["darts_thrown"], snap["points_scored"]
+        del self.game.history[snap["history_len"]:]
+        del self.match_turns[snap["match_turns_len"]:]
+        self.scorer.turn, self.scorer.waiting_empty = snap["turn_darts"], False
+        self.summary, self.review, self.mode, self._last_committed = None, snap["review"], REVIEW, None
+        self._emit("review", reason="undo")
+        self.toast("Back to the winning turn: fix it and confirm again", "warning")
 
     def _dart_records(self, remaining: int, rings) -> list[DartRecord]:
         """Darts of the current turn for the match statistics, with their finishing-double data."""
@@ -325,6 +364,8 @@ class GameEngine:
             if dart:
                 self._emit("removed", label=dart.hit.label)
             self.toast(f"Undid {dart.hit.label}" if dart else "No dart to undo", "warning")
+        elif self.mode == FINISHED:
+            self._undo_last_turn()
 
     def _cmd_remove(self, msg: dict) -> None:
         if self.mode in (PLAYING, REVIEW):
@@ -387,6 +428,7 @@ class GameEngine:
             return
         self.game = X01(players, start, bool(msg.get("double_out", False)))
         self.legs_to_win, self.match_turns, self.summary = legs_to_win, [], None
+        self._last_committed = None
         self.labels.metadata["game"] = start
         if self.mode in (REVIEW, FINISHED):
             self.review, self.mode = None, PLAYING

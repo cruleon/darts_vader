@@ -22,7 +22,17 @@ const cardVariants: Variants = {
 };
 
 /** End-of-match screen: one section per player with a scatter plot of every dart and all statistics. */
-export function StatsScreen({ state, onRematch, onNewGame }: { state: EngineState; onRematch: () => void; onNewGame: () => void }) {
+export function StatsScreen({
+  state,
+  onRematch,
+  onNewGame,
+  onEditLastTurn,
+}: {
+  state: EngineState;
+  onRematch: () => void;
+  onNewGame: () => void;
+  onEditLastTurn: () => void;
+}) {
   const summary = state.summary!;
   const count = summary.players.length;
   const columns = count <= 3 ? count : count === 4 ? 2 : 3;
@@ -99,6 +109,9 @@ export function StatsScreen({ state, onRematch, onNewGame }: { state: EngineStat
             </button>
             <button type="button" className="btn btn-secondary !h-[3.4rem] px-[1.4rem]" onClick={onNewGame}>
               <Kbd>G</Kbd> New game
+            </button>
+            <button type="button" className="btn btn-ghost !h-[3.4rem] px-[1.4rem]" onClick={onEditLastTurn}>
+              <Kbd>U</Kbd> Edit last turn
             </button>
           </motion.div>
         </header>
